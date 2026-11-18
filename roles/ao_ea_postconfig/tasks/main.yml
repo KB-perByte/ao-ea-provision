@@ -1,0 +1,101 @@
+---
+# Detect or enable script nodes via Execution Plane. Do not patch the
+# worker Deployment env (operator SSA overwrites it).
+
+- name: Run postconfig guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Skip script-nodes postconfig when disabled
+  ansible.builtin.debug:
+    msg: >-
+      script_nodes_enabled=false; leaving
+      script_nodes_effective=false. No cluster mutation.
+  when: postconfig_skipped | bool
+
+- name: Detect and enable script nodes via Execution Plane
+  when: not (postconfig_skipped | bool)
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Get the AutomationOrchestrator CR
+      kubernetes.core.k8s_info:
+        api_version: aap.ansible.com/v1alpha1
+        kind: AutomationOrchestrator
+        name: "{{ ao_name }}"
+        namespace: "{{ app_ns }}"
+      register: ao_cr_query
+
+    - name: Get the admin-settings ConfigMap
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ConfigMap
+        name: "{{ ao_admin_settings_name }}"
+        namespace: "{{ app_ns }}"
+      register: admin_cm_query
+
+    - name: Record CR and admin-settings EP facts
+      ansible.builtin.set_fact:
+        cr_exists: "{{ (ao_cr_query.resources | default([])) | length > 0 }}"
+        ao_spec: "{{ (ao_cr_query.resources[0].spec | default({})) if ((ao_cr_query.resources | default([])) | length > 0) else {} }}"
+        admin_settings_data: "{{ (admin_cm_query.resources[0].data | default({})) if ((admin_cm_query.resources | default([])) | length > 0) else {} }}"
+
+    - name: Record whether the live CR has an Execution Plane field
+      ansible.builtin.set_fact:
+        cr_has_ep_field: "{{ (ao_spec | dict2items | map(attribute='key') | list | intersect(['executionPlane', 'scriptNodes', 'scriptNodesEnabled'])) | length > 0 }}"
+        ep_enabled: "{{ (admin_settings_data[ep_enable_key] | default('') | trim | lower) in ['1', 'true', 'yes'] }}"
+        ep_db_secret_from_cm: "{{ admin_settings_data[ep_db_secret_key] | default('') | trim }}"
+
+    - name: Honor EXECUTION_PLANE_DATABASE_SECRET when set
+      ansible.builtin.set_fact:
+        ao_ep_db_secret_name: "{{ ep_db_secret_from_cm }}"
+      when: ep_db_secret_from_cm | length > 0
+
+    - name: Get the Execution Plane database Secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ ao_ep_db_secret_name }}"
+        namespace: "{{ app_ns }}"
+      register: ep_db_secret_query
+      no_log: true
+
+    - name: Record Execution Plane database Secret presence
+      ansible.builtin.set_fact:
+        ep_db_secret_present: "{{ (ep_db_secret_query.resources | default([])) | length > 0 }}"
+        ep_db_secret_data_keys: "{{ ((ep_db_secret_query.resources[0].data | default({})).keys() | list) if ((ep_db_secret_query.resources | default([])) | length > 0) else [] }}"
+
+    - name: Record Execution Plane database Secret keys
+      ansible.builtin.set_fact:
+        ep_db_secret_keys_ok: "{{ (ep_db_required_keys | difference(ep_db_secret_data_keys)) | length == 0 }}"
+
+    - name: Get the AO worker Deployment
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ ao_worker_deploy_name }}"
+        namespace: "{{ app_ns }}"
+      register: worker_query
+
+    - name: Record worker script-nodes env
+      ansible.builtin.include_tasks: record_worker_env.yml
+
+    - name: Enable Execution Plane when a reconciler-safe path exists
+      ansible.builtin.include_tasks: enable_ep.yml
+      when: not (worker_script_nodes_enabled | bool)
+
+    - name: Wait for the operator to set APP_SCRIPT_NODES_ENABLED
+      ansible.builtin.include_tasks: poll_worker_env.yml
+      loop: "{{ range(script_nodes_wait_retries | int) | list }}"
+      loop_control:
+        loop_var: _poll_i
+      when:
+        - should_wait_for_script_nodes | bool
+        - not (worker_script_nodes_enabled | bool)
+
+- name: Assert script nodes are effective
+  ansible.builtin.include_tasks: script_nodes_assert.yml
+  when: not (postconfig_skipped | bool)

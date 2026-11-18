@@ -1,0 +1,21 @@
+---
+# One poll of {{ ao_name }}-worker. Callers loop until the operator
+# sets APP_SCRIPT_NODES_ENABLED or retries are exhausted.
+
+- name: Get the AO worker Deployment
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ ao_worker_deploy_name }}"
+    namespace: "{{ app_ns }}"
+  register: worker_query
+
+- name: Record worker script-nodes env
+  ansible.builtin.include_tasks: record_worker_env.yml
+
+- name: Pause before the next worker env poll
+  ansible.builtin.wait_for:
+    timeout: "{{ script_nodes_wait_delay | int }}"
+  when:
+    - not (worker_script_nodes_enabled | bool)
+    - (_poll_i | int) < ((script_nodes_wait_retries | int) - 1)

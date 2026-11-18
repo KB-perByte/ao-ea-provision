@@ -1,0 +1,52 @@
+---
+# Reconciler-safe Execution Plane opt-in. Prefer a live CR field when
+# present. Else apply admin-settings ENABLE_EXECUTION_PLANE when the EP
+# database Secret already exists. Never patch the worker Deployment.
+
+- name: Enable Execution Plane via CR field when the live spec has one
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: aap.ansible.com/v1alpha1
+      kind: AutomationOrchestrator
+      metadata:
+        name: "{{ ao_name }}"
+        namespace: "{{ app_ns }}"
+      spec:
+        executionPlane:
+          enabled: true
+  when:
+    - cr_has_ep_field | bool
+    - not (worker_script_nodes_enabled | bool)
+    - not (ep_enabled | bool)
+
+- name: Mark EP enablement requested via CR field
+  ansible.builtin.set_fact:
+    ep_enabled: true
+  when:
+    - cr_has_ep_field | bool
+    - not (worker_script_nodes_enabled | bool)
+
+- name: Apply admin-settings ENABLE_EXECUTION_PLANE
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'admin_settings.yml.j2') }}"
+  when:
+    - not (worker_script_nodes_enabled | bool)
+    - not (ep_enabled | bool)
+    - not (cr_has_ep_field | bool)
+    - ep_db_secret_present | bool
+    - ep_db_secret_keys_ok | bool
+
+- name: Mark EP enablement requested via admin-settings
+  ansible.builtin.set_fact:
+    ep_enabled: true
+  when:
+    - not (worker_script_nodes_enabled | bool)
+    - ep_db_secret_present | bool
+    - ep_db_secret_keys_ok | bool
+    - not (cr_has_ep_field | bool)
+
+- name: Record whether to wait for the reconciler to set worker env
+  ansible.builtin.set_fact:
+    should_wait_for_script_nodes: "{{ (not (worker_script_nodes_enabled | bool)) and (ep_enabled | bool) }}"

@@ -197,6 +197,53 @@ oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov \
 # Re-run JT: success / no-op; same CR name and postgres.host
 ```
 
+## Postconfig script nodes (`ea-postconfig`)
+
+Playbook: `playbooks/postconfig.yml`.
+
+Makes script nodes effective on the EA worker. The operator sets
+`APP_SCRIPT_NODES_ENABLED=true` on `{ao_name}-worker` **only when
+Execution Plane is enabled**. That is not a public CR field. The
+reconciler-safe opt-in is ConfigMap `{ao_name}-admin-settings` with
+`ENABLE_EXECUTION_PLANE=true`, which also requires Secret
+`{ao_name}-execution-plane-database` (keys `database`, `username`,
+`password`) and an Execution Plane database on the BYO PostgreSQL.
+
+This playbook:
+
+1. Detects whether the worker already has the env (EP already on).
+2. If the live CR has `spec.executionPlane`, sets `enabled: true`.
+3. Else, if the EP database Secret is already present, applies
+   `ENABLE_EXECUTION_PLANE=true` and waits for the reconciler.
+4. Otherwise **fails** with that limitation. It does **not** patch the
+   worker Deployment env (operator Server-Side Apply would revert it).
+
+`script_nodes_enabled=false` is a no-op (`script_nodes_effective=false`).
+
+Produces fact `script_nodes_effective` (`false` until the worker env is
+`true`).
+
+AAP Job Template creation is human-owned.
+
+`ea-ensure-db` / `ea-ensure-secrets` do **not** create the Execution
+Plane database or Secret today. On a stock weekly provision the JT
+fails closed until those exist (or EP is already enabled). Do not work
+around that with a Deployment env patch.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-postconfig (success)
+oc get deploy -n syntarogation-ao-nov -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .spec.template.spec.containers[*]}{.env[*].name}{"="}{.env[*].value}{"\n"}{end}{end}' | grep APP_SCRIPT_NODES_ENABLED
+# expected: APP_SCRIPT_NODES_ENABLED=true on my-orchestrator-worker
+
+oc get configmap my-orchestrator-admin-settings -n syntarogation-ao-nov \
+  -o jsonpath='{.data.ENABLE_EXECUTION_PLANE}{"\n"}'
+# expected: true when this JT enabled EP
+
+# Re-run JT: success / no-op when the worker env is already true
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

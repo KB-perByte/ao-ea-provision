@@ -1,0 +1,27 @@
+---
+# Operator sets APP_SCRIPT_NODES_ENABLED on {{ ao_name }}-worker only
+# when Execution Plane is enabled. EP is not a public CR field; the
+# reconciler-safe opt-in is ConfigMap {{ ao_name }}-admin-settings.
+
+k8s_validate_certs: true
+
+ao_worker_deploy_suffix: worker
+ao_admin_settings_suffix: admin-settings
+ao_ep_db_secret_suffix: execution-plane-database
+
+ao_worker_deploy_name: "{{ ao_name }}-{{ ao_worker_deploy_suffix }}"
+ao_admin_settings_name: "{{ ao_name }}-{{ ao_admin_settings_suffix }}"
+ao_ep_db_secret_name: "{{ ao_name }}-{{ ao_ep_db_secret_suffix }}"
+
+script_nodes_env_name: APP_SCRIPT_NODES_ENABLED
+ep_enable_key: ENABLE_EXECUTION_PLANE
+ep_db_secret_key: EXECUTION_PLANE_DATABASE_SECRET
+ep_db_required_keys:
+  - database
+  - username
+  - password
+
+# Brief wait for the reconciler to set the worker env after EP opt-in.
+# Full Ready wait belongs to ea-health-check.
+script_nodes_wait_retries: 36
+script_nodes_wait_delay: 5

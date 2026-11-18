@@ -1,0 +1,25 @@
+---
+# Derive worker_exists / worker_script_nodes_enabled from worker_query
+# (k8s_info Deployment or a local mock).
+
+- name: Record whether the worker Deployment exists
+  ansible.builtin.set_fact:
+    worker_exists: "{{ (worker_query.resources | default([])) | length > 0 }}"
+    worker_containers: "{{ (worker_query.resources[0].spec.template.spec.containers | default([])) if ((worker_query.resources | default([])) | length > 0) else [] }}"
+    worker_env: []
+
+- name: Collect container env from the worker Deployment
+  ansible.builtin.set_fact:
+    worker_env: "{{ worker_env + (item.env | default([], true)) }}"
+  loop: "{{ worker_containers }}"
+  loop_control:
+    label: "{{ item.name | default('container') }}"
+  when: worker_containers | length > 0
+
+- name: Record APP_SCRIPT_NODES_ENABLED from worker env
+  ansible.builtin.set_fact:
+    worker_script_nodes_value: "{{ (worker_env | selectattr('name', 'defined') | selectattr('name', 'equalto', script_nodes_env_name) | map(attribute='value', default='') | list | first | default('')) | string }}"
+
+- name: Record whether the operator enabled script nodes on the worker
+  ansible.builtin.set_fact:
+    worker_script_nodes_enabled: "{{ (worker_script_nodes_value | trim | lower) in ['true', '1', 'yes'] }}"

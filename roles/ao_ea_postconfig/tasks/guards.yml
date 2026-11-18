@@ -1,0 +1,29 @@
+---
+# Cluster-free: require identifiers. Initializes facts fail-closed.
+# Does not call k8s. script_nodes_enabled=false skips cluster work.
+
+- name: Require postconfig identifiers
+  ansible.builtin.assert:
+    that:
+      - cluster_api is defined and (cluster_api | length) > 0
+      - app_ns is defined and (app_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - script_nodes_enabled is defined
+    fail_msg: >-
+      postconfig requires cluster_api, app_ns, ao_name, and
+      script_nodes_enabled to be defined (app_ns/ao_name non-empty).
+
+- name: Initialize postconfig facts fail-closed
+  ansible.builtin.set_fact:
+    script_nodes_effective: false
+    postconfig_skipped: "{{ not (script_nodes_enabled | bool) }}"
+    worker_exists: false
+    worker_script_nodes_enabled: false
+    worker_script_nodes_value: ""
+    ep_enabled: false
+    cr_exists: false
+    cr_has_ep_field: false
+    ep_db_secret_present: false
+    ep_db_secret_keys_ok: false
+    admin_settings_data: {}
+    should_wait_for_script_nodes: false

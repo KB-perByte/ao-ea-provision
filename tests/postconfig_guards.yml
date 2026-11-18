@@ -1,0 +1,35 @@
+---
+# Cluster-free postconfig guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/postconfig_guards.yml
+# Negative: ansible-playbook tests/postconfig_guards.yml -e app_ns=''
+#           ansible-playbook tests/postconfig_guards.yml -e ao_name=''
+# Skip:     ansible-playbook tests/postconfig_guards.yml -e script_nodes_enabled=false
+
+- name: Exercise postconfig guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run postconfig guards
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig
+        tasks_from: guards
+
+    - name: Require fail-closed script_nodes_effective
+      ansible.builtin.assert:
+        that:
+          - script_nodes_effective is defined
+          - not (script_nodes_effective | bool)
+          - worker_script_nodes_enabled is defined
+          - not (worker_script_nodes_enabled | bool)
+          - ep_enabled is defined
+          - not (ep_enabled | bool)
+          - postconfig_skipped | bool == (not (script_nodes_enabled | bool))
+        fail_msg: >-
+          postconfig guards must leave script_nodes_effective false until
+          the worker env is confirmed, and skip when
+          script_nodes_enabled=false.
+        success_msg: >-
+          script_nodes_effective=false until assert;
+          postconfig_skipped={{ postconfig_skipped }};
+          script_nodes_enabled={{ script_nodes_enabled }}.

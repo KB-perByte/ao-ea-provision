@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ ao_admin_settings_name }}
+  namespace: {{ app_ns }}
+data:
+{% for key, value in (admin_settings_data | default({}) | combine({ep_enable_key: 'true'})).items() %}
+  {{ key }}: {{ value | string | to_json }}
+{% endfor %}

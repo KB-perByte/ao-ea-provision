@@ -1,0 +1,13 @@
+---
+# JT ea-postconfig.
+# Make script nodes effective on the EA worker via Execution Plane
+# enablement. Never patch the worker Deployment env (operator SSA).
+
+- name: Postconfigure EA script nodes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA postconfig
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig

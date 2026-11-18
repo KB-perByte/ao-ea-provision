@@ -1,0 +1,34 @@
+---
+# Offline admin-settings template render. Does not call k8s.
+# Positive: ansible-playbook tests/postconfig_template.yml
+
+- name: Render admin-settings ConfigMap template without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ao_admin_settings_name: my-orchestrator-admin-settings
+    ep_enable_key: ENABLE_EXECUTION_PLANE
+    admin_settings_data:
+      KEEP_ME: preserved
+  tasks:
+    - name: Render admin-settings from role template
+      ansible.builtin.set_fact:
+        admin_cm: "{{ lookup('template', playbook_dir ~ '/../roles/ao_ea_postconfig/templates/admin_settings.yml.j2') | from_yaml }}"
+
+    - name: Require ENABLE_EXECUTION_PLANE merge without dropping keys
+      ansible.builtin.assert:
+        that:
+          - admin_cm.apiVersion == 'v1'
+          - admin_cm.kind == 'ConfigMap'
+          - admin_cm.metadata.name == 'my-orchestrator-admin-settings'
+          - admin_cm.metadata.namespace == app_ns
+          - admin_cm.data.ENABLE_EXECUTION_PLANE == 'true'
+          - admin_cm.data.KEEP_ME == 'preserved'
+        fail_msg: >-
+          admin-settings template must set ENABLE_EXECUTION_PLANE=true
+          and preserve existing ConfigMap keys (reconciler-safe EP opt-in).
+        success_msg: >-
+          ConfigMap {{ admin_cm.metadata.namespace }}/{{ admin_cm.metadata.name }}
+          ENABLE_EXECUTION_PLANE={{ admin_cm.data.ENABLE_EXECUTION_PLANE }}
+          KEEP_ME={{ admin_cm.data.KEEP_ME }}.

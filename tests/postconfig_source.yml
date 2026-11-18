@@ -1,0 +1,75 @@
+---
+# Static contract: postconfig must enable script nodes via Execution
+# Plane (admin-settings / CR field) and must not patch the worker
+# Deployment env (operator SSA overwrites it).
+
+- name: Assert postconfig sources use reconciler-safe EP enablement
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    postconfig_sources:
+      - "{{ playbook_dir }}/../playbooks/postconfig.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/enable_ep.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/poll_worker_env.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/record_worker_env.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/script_nodes_assert.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/defaults/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/README.md"
+      - "{{ playbook_dir }}/../roles/ao_ea_postconfig/templates/admin_settings.yml.j2"
+  tasks:
+    - name: Load postconfig source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ postconfig_sources }}"
+      register: postconfig_slurps
+
+    - name: Combine postconfig source text
+      ansible.builtin.set_fact:
+        postconfig_text: "{{ postconfig_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Load enable_ep tasks only
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../roles/ao_ea_postconfig/tasks/enable_ep.yml"
+      register: enable_ep_slurp
+
+    - name: Decode enable_ep tasks
+      ansible.builtin.set_fact:
+        enable_ep_text: "{{ enable_ep_slurp.content | b64decode }}"
+
+    - name: Require EP detection, facts, and limitation docs
+      ansible.builtin.assert:
+        that:
+          - "'script_nodes_effective' in postconfig_text"
+          - "'script_nodes_enabled' in postconfig_text"
+          - "'APP_SCRIPT_NODES_ENABLED' in postconfig_text"
+          - "'ENABLE_EXECUTION_PLANE' in postconfig_text"
+          - "'admin-settings' in postconfig_text"
+          - "'execution-plane-database' in postconfig_text"
+          - "'executionPlane' in postconfig_text"
+          - "'Server-Side Apply' in postconfig_text"
+          - "'Do not patch the worker' in postconfig_text"
+          - "'doomed Deployment env patch' in postconfig_text"
+          - "'kind: ConfigMap' in postconfig_text"
+          - "'kubernetes.core.k8s_info:' in postconfig_text"
+        fail_msg: >-
+          postconfig must detect worker env and EP admin-settings, produce
+          script_nodes_effective, document SSA overwrite, and refuse a
+          doomed worker Deployment env patch.
+
+    - name: Forbid worker Deployment env patches and oc/kubectl mutation
+      ansible.builtin.assert:
+        that:
+          - "'oc patch' not in postconfig_text"
+          - "'oc set env' not in postconfig_text"
+          - "'oc apply' not in postconfig_text"
+          - "'kubectl patch' not in postconfig_text"
+          - "'kubectl set env' not in postconfig_text"
+          - "'kind: Deployment' not in enable_ep_text"
+          - "'APP_SCRIPT_NODES_ENABLED' not in enable_ep_text"
+        fail_msg: >-
+          postconfig must not patch the worker Deployment or set
+          APP_SCRIPT_NODES_ENABLED on it. Enable EP via admin-settings
+          ConfigMap or a live CR field only.
