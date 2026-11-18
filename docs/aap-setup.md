@@ -1,14 +1,162 @@
 # AAP setup (human-owned)
 
-AAP Controller bootstrap, Execution Environment, credentials, Job Template
-mapping, and stable AO workflow wiring are **out of scope for this Git repo
-scaffold**.
-
-Those steps are owned by the operator/human. Do not encode cluster tokens or
-database passwords here.
-
 This repository is the AAP Project content: playbooks, roles, and inventory
 vars for weekly early-access Automation Orchestrator provision on PDE AO-05.
+
+AAP Controller bootstrap, the Execution Environment image, credential
+objects, Job Template registration, and the stable AO workflow are
+**human-owned**. This doc is the stitching guide: JT names, playbook
+paths, extra-vars, credentials, EE collections, and timeouts.
+
+Do not encode cluster tokens or database passwords here. Never paste
+secret values into Job Template extra-vars JSON, surveys, or this repo.
+
+Stable AO workflow node order lives in [ao-workflow.md](ao-workflow.md).
+
+## Job Templates
+
+Create all eight in the same Organization, Project (`ao-ea-provision`),
+Inventory (`pde-ao-05` / localhost), Execution Environment, and
+credential set. Limit to the Project's SCM playbook paths below.
+
+| JT name | Playbook |
+|---|---|
+| `ea-preflight` | `playbooks/preflight.yml` |
+| `ea-teardown-app` | `playbooks/teardown_app.yml` |
+| `ea-ensure-db` | `playbooks/ensure_db.yml` |
+| `ea-ensure-secrets` | `playbooks/ensure_secrets.yml` |
+| `ea-ensure-operator` | `playbooks/ensure_operator.yml` |
+| `ea-apply-ao-cr` | `playbooks/apply_ao_cr.yml` |
+| `ea-postconfig` | `playbooks/postconfig.yml` |
+| `ea-health-check` | `playbooks/health_check.yml` |
+
+Optional survey on launch: `ao_channel` (default `early-access`). Do not
+survey for tokens or passwords.
+
+`playbooks/safety_assert.yml` is a local guard wrapper, not a Job
+Template.
+
+## Credentials (no secret values)
+
+Attach the same credentials to every JT. Inject secrets via Controller
+credentials, not Git or extra-vars files in this repo.
+
+| Credential | Type | Injects | Used by |
+|---|---|---|---|
+| PDE AO-05 OpenShift | Kubernetes / OpenShift (API URL + token) | `K8S_AUTH_*` (or extra-vars `k8s_api_key` / `k8s_kubeconfig`) | all eight JTs (`host` is always `cluster_api`) |
+| PostgreSQL admin | Custom / Vault | `pg_admin_password` or `vault_pg_admin_password` | `ea-ensure-db` |
+| PostgreSQL orchestrator | Custom / Vault | `pg_orchestrator_password` or `vault_pg_orchestrator_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+| PostgreSQL temporal | Custom / Vault | `pg_temporal_password` or `vault_pg_temporal_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+
+The OpenShift credential's host/API URL must match `cluster_api`. The
+token must be able to list Nodes and mutate `app_ns` / `db_ns` as the
+playbooks require.
+
+PG role passwords on `ea-ensure-secrets` **must** match the roles
+`ea-ensure-db` created. A mismatch fails as `password mismatch / DB
+reuse`.
+
+## extra_vars
+
+Non-secret PDE AO-05 defaults live in `inventory/group_vars/all.yml`.
+Pass the same map into every JT (or rely on the Project inventory).
+Override per launch only when needed.
+
+| extra-var | Default | Notes |
+|---|---|---|
+| `cluster_api` | `https://api.pde-ao-05.rnil.p3.openshiftapps.com:443` | PDE AO-05 API |
+| `app_ns` | `syntarogation-ao-nov` | App project (kept; CR is deleted) |
+| `db_ns` | `syntarogation-ao-nov-db` | Persistent DB project |
+| `ao_name` | `my-orchestrator` | `AutomationOrchestrator` CR name |
+| `pg_service_host` | `ao-postgres.syntarogation-ao-nov-db.svc` | BYO PG DNS |
+| `pg_service_name` | `ao-postgres` | StatefulSet / Service |
+| `route_host` | `syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com` | Ingress host |
+| `ao_channel` | `early-access` | Override only if the existing Subscription already uses that channel |
+| `catalog_source` | `redhat-operators` | Marketplace catalog |
+| `catalog_ns` | `openshift-marketplace` | CatalogSource namespace |
+| `operator_ns` | `automation-orchestrator-operator-system` | Existing operator install |
+| `operator_subscription_name` | `automation-orchestrator-operator` | Existing Subscription |
+| `script_nodes_enabled` | `true` | See [Postconfig / script nodes](#postconfig--script-nodes) |
+| `pg_pvc_name` | `data-ao-postgres-0` | Never delete |
+
+Credential extra-vars (values from AAP credentials, never committed):
+
+| extra-var | Vault alias | Required on |
+|---|---|---|
+| `pg_admin_password` | `vault_pg_admin_password` | `ea-ensure-db` |
+| `pg_orchestrator_password` | `vault_pg_orchestrator_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+| `pg_temporal_password` | `vault_pg_temporal_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+
+Optional:
+
+| extra-var | Default | When |
+|---|---|---|
+| `secrets_verify_connect` | `true` | `-e secrets_verify_connect=false` skips the PG connect check |
+| `k8s_api_key` / `k8s_kubeconfig` | unset | Prefer the Kubernetes credential; do not log these |
+
+## Execution Environment / collections
+
+`requirements.yml` lists `kubernetes.core` (>=5.0.0) and
+`redhat.openshift` (>=1.0.0).
+
+- **`kubernetes.core`**: install from Galaxy (`galaxy.ansible.com`).
+- **`redhat.openshift`**: published on Red Hat Automation Hub, not
+  public Galaxy. Bake it into the AAP Execution Environment (or
+  `ansible-galaxy` with a Hub token). Do **not** install it from
+  galaxy.ansible.com.
+
+Confirm on the EE before the first real run:
+
+```bash
+ansible-galaxy collection list | grep -E 'kubernetes.core|redhat.openshift'
+```
+
+Both collections must be present. `ea-preflight` uses
+`kubernetes.core.k8s_info` so syntax-check still works if Hub is
+unavailable; live OpenShift mutations expect both.
+
+## Postconfig / script nodes
+
+`ea-postconfig` makes script nodes effective on the EA worker. The
+operator sets `APP_SCRIPT_NODES_ENABLED=true` on `{ao_name}-worker`
+**only when Execution Plane is enabled**.
+
+That opt-in needs Secret `{ao_name}-execution-plane-database` in
+`app_ns` (keys `database`, `username`, `password`) plus an Execution
+Plane database on the BYO PostgreSQL. `ea-ensure-db` /
+`ea-ensure-secrets` do **not** create those.
+
+On a stock weekly provision, `ea-postconfig` **fails closed** until
+that Secret exists (or EP is already enabled). Do not work around it
+with a worker Deployment env patch (operator SSA reverts it).
+
+To skip script-node enablement for a run:
+
+```bash
+-e script_nodes_enabled=false
+```
+
+That is a no-op (`script_nodes_effective=false`). Put the same extra-var
+on the JT / workflow extra_vars map when EP is not ready.
+
+## Suggested JT timeouts
+
+AAP Controller job timeout must exceed the playbook wait, plus a buffer
+for API lag.
+
+| JT | Suggested timeout | Why |
+|---|---|---|
+| `ea-preflight` | 10 min | Read-only catalog / channel checks |
+| `ea-teardown-app` | 15 min | CR delete + ownerRef GC wait 600s |
+| `ea-ensure-db` | 15 min | StatefulSet Ready + init SQL (~300s wait) |
+| `ea-ensure-secrets` | 10 min | Secret apply + optional connect check |
+| `ea-ensure-operator` | 10 min | Subscription asserts only |
+| `ea-apply-ao-cr` | 10 min | Apply + ~90s `ConfigurationValid` |
+| `ea-postconfig` | 10 min | EP opt-in + ~3 min worker-env wait |
+| `ea-health-check` | **> 25 min** | Ready wait 1200s (~20 min) plus HTTPS `/health` retries (~4 min) |
+
+Default Controller timeouts that are 1 hour are fine. Anything at or
+below 20 minutes will fail `ea-health-check` on a cold apply.
 
 ## Teardown policy (`ea-teardown-app`)
 
@@ -291,8 +439,6 @@ oc get secret my-orchestrator-initial-admin-password \
 
 ## Collections
 
-`requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`
-(>=1.0.0). `kubernetes.core` installs from Galaxy. `redhat.openshift` is
-published on Red Hat Automation Hub, not public Galaxy — install it in the
-AAP Execution Environment (or with a Hub token), not via
-`ansible-galaxy` against galaxy.ansible.com.
+See [Execution Environment / collections](#execution-environment--collections).
+`kubernetes.core` from Galaxy; `redhat.openshift` from Automation Hub in
+the EE.
