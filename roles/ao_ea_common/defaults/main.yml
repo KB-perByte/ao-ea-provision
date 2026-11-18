@@ -1,0 +1,11 @@
+---
+# Role-level defaults. Cluster/namespace values live in inventory/group_vars/all.yml.
+
+# Namespace the teardown playbook is allowed to mutate. Must never equal db_ns.
+teardown_target_ns: "{{ app_ns }}"
+
+# Namespaces requested for deletion. Must never include db_ns.
+teardown_delete_namespaces: []
+
+# PVC names requested for deletion. Must never include pg_pvc_name.
+teardown_delete_pvcs: []

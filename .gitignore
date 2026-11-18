@@ -1,0 +1,32 @@
+# Ansible runtime / galaxy installs
+*.retry
+collections/
+.galaxy_install_info
+.ansible/
+
+# Secrets — never commit credentials, tokens, or vault passwords
+*.vault
+.vault_pass
+.vault_password
+vault_password
+secrets/
+*.key
+*.pem
+*.p12
+*.kubeconfig
+kubeconfig
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Molecule / tests
+.cache/
+.molecule/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+*.swp

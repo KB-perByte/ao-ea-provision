@@ -1,0 +1,7 @@
+---
+- name: Run AO EA teardown safety asserts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - ao_ea_common

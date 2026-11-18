@@ -1,0 +1,3 @@
+---
+- name: Include teardown safety asserts
+  ansible.builtin.include_tasks: safety_assert.yml

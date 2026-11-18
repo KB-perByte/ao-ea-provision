@@ -1,0 +1,19 @@
+---
+# PDE AO-05 defaults for weekly early-access AO provision.
+# Keep cluster/namespace values here so they can be parameterized later.
+# Never store secrets (OCP tokens, PG passwords, admin passwords) in this repo.
+
+cluster_api: "https://api.pde-ao-05.rnil.p3.openshiftapps.com:443"
+app_ns: syntarogation-ao-nov
+db_ns: syntarogation-ao-nov-db
+ao_name: my-orchestrator
+pg_service_host: ao-postgres.syntarogation-ao-nov-db.svc
+pg_service_name: ao-postgres
+route_host: syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+ao_channel: early-access
+catalog_source: redhat-operators
+catalog_ns: openshift-marketplace
+operator_ns: automation-orchestrator-operator-system
+operator_subscription_name: automation-orchestrator-operator
+script_nodes_enabled: true
+pg_pvc_name: data-ao-postgres-0

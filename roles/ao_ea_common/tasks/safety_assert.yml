@@ -1,0 +1,49 @@
+---
+# Hard guards: teardown must never delete db_ns, the DB PVC, or StatefulSet data.
+
+- name: Require protected identifiers to be defined
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - db_ns is defined and (db_ns | length) > 0
+      - pg_pvc_name is defined and (pg_pvc_name | length) > 0
+      - teardown_target_ns is defined and (teardown_target_ns | length) > 0
+    fail_msg: >-
+      Safety assert requires app_ns, db_ns, pg_pvc_name, and teardown_target_ns
+      to be defined and non-empty.
+
+- name: Fail if app namespace equals the protected DB namespace
+  ansible.builtin.assert:
+    that:
+      - app_ns != db_ns
+    fail_msg: >-
+      Teardown must never target the DB namespace.
+      app_ns ({{ app_ns }}) equals db_ns ({{ db_ns }}).
+    success_msg: "app_ns {{ app_ns }} is distinct from db_ns {{ db_ns }}."
+
+- name: Fail if teardown target namespace equals the protected DB namespace
+  ansible.builtin.assert:
+    that:
+      - teardown_target_ns != db_ns
+    fail_msg: >-
+      Teardown must never target the DB namespace.
+      teardown_target_ns ({{ teardown_target_ns }}) equals db_ns ({{ db_ns }}).
+    success_msg: "teardown_target_ns {{ teardown_target_ns }} is not db_ns {{ db_ns }}."
+
+- name: Fail if a delete is requested for the DB namespace
+  ansible.builtin.assert:
+    that:
+      - db_ns not in (teardown_delete_namespaces | default([]))
+    fail_msg: >-
+      Teardown must never delete namespace {{ db_ns }}.
+      Requested deletes: {{ teardown_delete_namespaces | default([]) }}.
+    success_msg: "No delete requested for protected namespace {{ db_ns }}."
+
+- name: Fail if a delete is requested for the DB PVC
+  ansible.builtin.assert:
+    that:
+      - pg_pvc_name not in (teardown_delete_pvcs | default([]))
+    fail_msg: >-
+      Teardown must never delete PVC {{ pg_pvc_name }} (DB data volume).
+      Requested PVC deletes: {{ teardown_delete_pvcs | default([]) }}.
+    success_msg: "No delete requested for protected PVC {{ pg_pvc_name }}."
