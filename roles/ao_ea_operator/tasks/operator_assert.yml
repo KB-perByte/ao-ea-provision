@@ -1,0 +1,75 @@
+---
+# Channel, CSV, and uniqueness asserts. Callers must set
+# subscription_exists, subscription_channel, subscription_state,
+# installed_csv, csv_phase, ao_subscription_count (from k8s_info or a
+# local mock). Fails closed: never creates or patches a Subscription.
+
+- name: Require the named AO Subscription to exist
+  ansible.builtin.assert:
+    that:
+      - subscription_exists | bool
+    fail_msg: >-
+      Subscription {{ operator_subscription_name }} was not found in
+      {{ operator_ns }}. Do not create or patch a Subscription in v1.
+      Install the operator via OperatorHub first, then re-run with
+      ao_channel matching spec.channel.
+    success_msg: >-
+      Subscription {{ operator_subscription_name }} is present in
+      {{ operator_ns }}.
+
+- name: Require exactly one AO operator Subscription
+  ansible.builtin.assert:
+    that:
+      - (ao_subscription_count | int) == 1
+    fail_msg: >-
+      Found {{ ao_subscription_count }} Subscription(s) for package
+      {{ ao_operator_package }} (want exactly 1). Do not create or patch
+      another Subscription in v1. Remove duplicates before re-running.
+    success_msg: >-
+      Exactly one Subscription for package {{ ao_operator_package }}.
+
+- name: Require Subscription channel to match ao_channel
+  ansible.builtin.assert:
+    that:
+      - subscription_channel == ao_channel
+    fail_msg: >-
+      Subscription {{ operator_subscription_name }} in {{ operator_ns }}
+      is on channel {{ subscription_channel }}, not ao_channel
+      {{ ao_channel }}. Do not create or patch the Subscription in v1.
+      Set ao_channel={{ subscription_channel }} to match the installed
+      operator, or have an operator change the existing Subscription
+      channel to {{ ao_channel }} outside this playbook.
+    success_msg: >-
+      Subscription channel {{ subscription_channel }} matches
+      ao_channel {{ ao_channel }}.
+
+- name: Require Subscription state healthy and CSV Succeeded
+  ansible.builtin.assert:
+    that:
+      - subscription_state == ao_subscription_healthy_state
+      - installed_csv is defined and (installed_csv | length) > 0
+      - csv_phase == ao_csv_healthy_phase
+    fail_msg: >-
+      Subscription {{ operator_subscription_name }} is not healthy
+      (state={{ subscription_state }}, installedCSV={{ installed_csv }},
+      CSV phase={{ csv_phase }}). Need state
+      {{ ao_subscription_healthy_state }} and CSV
+      {{ ao_csv_healthy_phase }}. Do not create or patch the
+      Subscription in v1.
+    success_msg: >-
+      CSV {{ installed_csv }} {{ ao_csv_healthy_phase }}; Subscription
+      state {{ subscription_state }}.
+
+- name: Mark operator channel ok
+  ansible.builtin.set_fact:
+    channel_ok: true
+
+- name: Show operator ensure result
+  ansible.builtin.debug:
+    msg:
+      channel_ok: "{{ channel_ok }}"
+      installed_csv: "{{ installed_csv }}"
+      ao_channel: "{{ ao_channel }}"
+      subscription_channel: "{{ subscription_channel }}"
+      operator_ns: "{{ operator_ns }}"
+      ao_subscription_count: "{{ ao_subscription_count }}"

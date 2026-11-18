@@ -1,0 +1,60 @@
+---
+# Assert the existing AO Operator Subscription. Read-only k8s_info.
+# Never create or patch a Subscription.
+
+- name: Run operator ensure guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Query the existing AO Subscription
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Get the named AO Subscription
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ operator_subscription_name }}"
+        namespace: "{{ operator_ns }}"
+      register: ao_sub_query
+
+    - name: Record whether the named Subscription exists
+      ansible.builtin.set_fact:
+        subscription_exists: "{{ (ao_sub_query.resources | default([])) | length > 0 }}"
+
+    - name: Record named Subscription fields
+      ansible.builtin.set_fact:
+        subscription_channel: "{{ ao_sub_query.resources[0].spec.channel | default('') }}"
+        subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
+        installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
+      when: subscription_exists | bool
+
+    - name: Get the installed ClusterServiceVersion
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ installed_csv }}"
+        namespace: "{{ operator_ns }}"
+      register: ao_csv_query
+      when: installed_csv | length > 0
+
+    - name: Record CSV phase
+      ansible.builtin.set_fact:
+        csv_phase: "{{ ao_csv_query.resources[0].status.phase | default('') if ((ao_csv_query.resources | default([])) | length > 0) else '' }}"
+      when: installed_csv | length > 0
+
+    - name: List Subscriptions cluster-wide
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+      register: all_subscriptions
+
+    - name: Count AO operator Subscriptions
+      ansible.builtin.set_fact:
+        ao_subscription_count: "{{ (all_subscriptions.resources | default([]) | map(attribute='spec') | selectattr('name', 'defined') | map(attribute='name') | select('equalto', ao_operator_package) | list) | length }}"
+
+- name: Assert Subscription channel, CSV, and uniqueness
+  ansible.builtin.include_tasks: operator_assert.yml

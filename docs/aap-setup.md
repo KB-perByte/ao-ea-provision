@@ -122,6 +122,46 @@ oc get secret orchestrator-pg-credentials -n syntarogation-ao-nov \
 # Re-run JT: success / no-op; same secret names
 ```
 
+## Ensure operator (`ea-ensure-operator`)
+
+Playbook: `playbooks/ensure_operator.yml`.
+
+**Asserts** the existing OperatorHub Subscription in `operator_ns`. It does
+**not** create or patch a Subscription in v1.
+
+Checks:
+
+1. Subscription `operator_subscription_name` exists in `operator_ns`.
+2. `spec.channel == ao_channel` (inventory default `early-access`; honor
+   extra-var override).
+3. `status.state` is `AtLatestKnown` and the installed CSV phase is
+   `Succeeded`.
+4. Exactly one Subscription for package `automation-orchestrator-operator`
+   cluster-wide.
+
+Channel mismatch (example: `-e ao_channel=stable` while the cluster is on
+`early-access`) **fails clearly**. Do not patch the Subscription; either
+set `ao_channel` to the installed channel, or have an operator change the
+existing Subscription outside this playbook.
+
+Produces facts `installed_csv` and `channel_ok` (`false` until asserts
+pass).
+
+AAP Job Template creation is human-owned.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-ensure-operator
+oc get subscription automation-orchestrator-operator \
+  -n automation-orchestrator-operator-system \
+  -o custom-columns=CHANNEL:.spec.channel,SOURCE:.spec.source,CSV:.status.installedCSV,STATE:.status.state
+# expected: CHANNEL=early-access; STATE=AtLatestKnown
+
+# Negative: launch JT with ao_channel=stable while the cluster is
+# early-access — expect fail; Subscription must be unchanged
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

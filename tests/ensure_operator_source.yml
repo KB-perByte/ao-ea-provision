@@ -1,0 +1,62 @@
+---
+# Static contract: ensure_operator must assert the existing Subscription
+# and must never create or patch one.
+
+- name: Assert ensure_operator sources only assert the existing Subscription
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    operator_sources:
+      - "{{ playbook_dir }}/../playbooks/ensure_operator.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/operator_assert.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/defaults/main.yml"
+  tasks:
+    - name: Load operator source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ operator_sources }}"
+      register: operator_slurps
+
+    - name: Combine operator source text
+      ansible.builtin.set_fact:
+        operator_text: "{{ operator_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Require Subscription asserts and produced facts
+      ansible.builtin.assert:
+        that:
+          - "'operator_ns' in operator_text"
+          - "'ao_channel' in operator_text"
+          - "'operator_subscription_name' in operator_text"
+          - "'kind: Subscription' in operator_text"
+          - "'kind: ClusterServiceVersion' in operator_text"
+          - "'installed_csv' in operator_text"
+          - "'channel_ok' in operator_text"
+          - "'k8s_info' in operator_text"
+          - "'Do not create or patch' in operator_text"
+          - "'Succeeded' in operator_text"
+        fail_msg: >-
+          ensure_operator must look up Subscription and ClusterServiceVersion
+          with k8s_info, assert channel == ao_channel and CSV Succeeded,
+          produce installed_csv/channel_ok, and tell the operator not to
+          create or patch the Subscription.
+
+    - name: Forbid creating or patching a Subscription
+      ansible.builtin.assert:
+        that:
+          - "'group/kubernetes.core.k8s:' in operator_text"
+          - (operator_text.split('kubernetes.core.k8s:') | length) == 2
+          - "'kubernetes.core.k8s_info:' in operator_text"
+          - "'state: present' not in operator_text"
+          - "'state: absent' not in operator_text"
+          - "'oc apply' not in operator_text"
+          - "'oc create' not in operator_text"
+          - "'oc patch' not in operator_text"
+          - "'oc delete' not in operator_text"
+        fail_msg: >-
+          ensure_operator must not create, patch, or delete Subscription
+          (k8s_info only; module_defaults group/kubernetes.core.k8s is
+          allowed; no state present/absent, no oc apply/create/patch/
+          delete). Fail and instruct the operator instead.

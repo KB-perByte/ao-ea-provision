@@ -1,0 +1,35 @@
+---
+# Local operator channel-assert coverage without a cluster. Does not call k8s.
+# Positive: ansible-playbook tests/ensure_operator_channel.yml
+#           (ao_channel=early-access matches mocked Subscription)
+# Negative: ansible-playbook tests/ensure_operator_channel.yml -e ao_channel=stable
+#           (cluster remains early-access; JT must fail clearly — do not patch)
+
+- name: Exercise operator channel assert without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    subscription_exists: true
+    subscription_channel: early-access
+    subscription_state: AtLatestKnown
+    installed_csv: automation-orchestrator-operator.v2026.8.1793803831
+    csv_phase: Succeeded
+    ao_subscription_count: 1
+  tasks:
+    - name: Run operator channel and CSV asserts
+      ansible.builtin.include_role:
+        name: ao_ea_operator
+        tasks_from: operator_assert
+
+    - name: Require channel_ok and installed_csv
+      ansible.builtin.assert:
+        that:
+          - channel_ok is defined
+          - channel_ok | bool
+          - installed_csv == 'automation-orchestrator-operator.v2026.8.1793803831'
+        fail_msg: >-
+          Matching ao_channel={{ ao_channel }} against Subscription channel
+          {{ subscription_channel }} must set channel_ok and keep installed_csv.
+        success_msg: >-
+          channel_ok={{ channel_ok }}; installed_csv={{ installed_csv }}.

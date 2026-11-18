@@ -1,0 +1,14 @@
+---
+# JT ea-ensure-operator.
+# Assert the existing AO Operator Subscription in operator_ns:
+# spec.channel == ao_channel (default early-access), CSV Succeeded,
+# exactly one AO Subscription. Do not create or patch Subscription.
+
+- name: Assert early-access AO operator Subscription
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA operator ensure
+      ansible.builtin.include_role:
+        name: ao_ea_operator

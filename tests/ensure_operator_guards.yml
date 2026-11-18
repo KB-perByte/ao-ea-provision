@@ -1,0 +1,29 @@
+---
+# Cluster-free ensure_operator guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/ensure_operator_guards.yml
+# Negative: ansible-playbook tests/ensure_operator_guards.yml -e operator_ns=''
+#           ansible-playbook tests/ensure_operator_guards.yml -e ao_channel=''
+#           ansible-playbook tests/ensure_operator_guards.yml -e operator_subscription_name=''
+
+- name: Exercise operator ensure guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run operator ensure guards
+      ansible.builtin.include_role:
+        name: ao_ea_operator
+        tasks_from: guards
+
+    - name: Require fail-closed operator facts
+      ansible.builtin.assert:
+        that:
+          - channel_ok is defined
+          - not (channel_ok | bool)
+          - installed_csv is defined
+          - installed_csv | length == 0
+        fail_msg: >-
+          ensure_operator guards must leave channel_ok false and installed_csv
+          empty until the Subscription channel matches and CSV Succeeded.
+        success_msg: >-
+          channel_ok is false and installed_csv is empty until cluster asserts.

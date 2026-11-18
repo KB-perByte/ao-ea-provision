@@ -1,0 +1,26 @@
+---
+# Cluster-free: require identifiers. Initializes channel_ok / installed_csv
+# fail-closed. Does not call k8s.
+
+- name: Require operator ensure identifiers
+  ansible.builtin.assert:
+    that:
+      - cluster_api is defined and (cluster_api | length) > 0
+      - operator_ns is defined and (operator_ns | length) > 0
+      - ao_channel is defined and (ao_channel | length) > 0
+      - operator_subscription_name is defined and (operator_subscription_name | length) > 0
+      - ao_operator_package is defined and (ao_operator_package | length) > 0
+    fail_msg: >-
+      ensure_operator requires cluster_api, operator_ns, ao_channel,
+      operator_subscription_name, and ao_operator_package to be defined
+      and non-empty.
+
+- name: Initialize operator facts fail-closed
+  ansible.builtin.set_fact:
+    channel_ok: false
+    installed_csv: ""
+    subscription_exists: false
+    subscription_channel: ""
+    subscription_state: ""
+    csv_phase: ""
+    ao_subscription_count: 0
