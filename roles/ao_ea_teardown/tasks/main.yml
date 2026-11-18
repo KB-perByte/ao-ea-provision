@@ -1,0 +1,49 @@
+---
+# Keep app_ns. Delete AutomationOrchestrator CR, wait for ownerRef GC.
+# Never delete db_ns, the DB PVC, or the DB StatefulSet.
+
+- name: Run teardown guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Delete the AO CR and wait for GC
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Delete AutomationOrchestrator CR if present
+      kubernetes.core.k8s:
+        api_version: aap.ansible.com/v1alpha1
+        kind: AutomationOrchestrator
+        name: "{{ ao_name }}"
+        namespace: "{{ teardown_target_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ teardown_wait_timeout | int }}"
+
+    - name: Wait until operator-owned Deployments in app_ns are gone
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ teardown_target_ns }}"
+        label_selectors:
+          - "app.kubernetes.io/instance={{ ao_name }}"
+          - "app.kubernetes.io/managed-by=automation-orchestrator-operator"
+      register: teardown_leftover_deployments
+      until: (teardown_leftover_deployments.resources | default([])) | length == 0
+      retries: "{{ ((teardown_wait_timeout | int) / (teardown_wait_delay | int)) | int }}"
+      delay: "{{ teardown_wait_delay | int }}"
+
+- name: Mark teardown complete
+  ansible.builtin.set_fact:
+    teardown_completed: true
+
+- name: Show teardown result
+  ansible.builtin.debug:
+    msg:
+      teardown_completed: "{{ teardown_completed }}"
+      ao_name: "{{ ao_name }}"
+      app_ns: "{{ app_ns }}"
+      db_ns: "{{ db_ns }}"

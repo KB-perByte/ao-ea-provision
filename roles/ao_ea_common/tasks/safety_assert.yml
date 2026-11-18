@@ -7,10 +7,11 @@
       - app_ns is defined and (app_ns | length) > 0
       - db_ns is defined and (db_ns | length) > 0
       - pg_pvc_name is defined and (pg_pvc_name | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
       - teardown_target_ns is defined and (teardown_target_ns | length) > 0
     fail_msg: >-
-      Safety assert requires app_ns, db_ns, pg_pvc_name, and teardown_target_ns
-      to be defined and non-empty.
+      Safety assert requires app_ns, db_ns, pg_pvc_name, pg_service_name, and
+      teardown_target_ns to be defined and non-empty.
 
 - name: Fail if app namespace equals the protected DB namespace
   ansible.builtin.assert:
@@ -47,3 +48,12 @@
       Teardown must never delete PVC {{ pg_pvc_name }} (DB data volume).
       Requested PVC deletes: {{ teardown_delete_pvcs | default([]) }}.
     success_msg: "No delete requested for protected PVC {{ pg_pvc_name }}."
+
+- name: Fail if a delete is requested for the DB StatefulSet
+  ansible.builtin.assert:
+    that:
+      - pg_service_name not in (teardown_delete_statefulsets | default([]))
+    fail_msg: >-
+      Teardown must never delete StatefulSet {{ pg_service_name }} (DB).
+      Requested StatefulSet deletes: {{ teardown_delete_statefulsets | default([]) }}.
+    success_msg: "No delete requested for protected StatefulSet {{ pg_service_name }}."

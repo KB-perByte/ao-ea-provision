@@ -1,0 +1,39 @@
+---
+# Cluster-free teardown guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/teardown_guards.yml
+# Negative: ansible-playbook tests/teardown_guards.yml -e app_ns=syntarogation-ao-nov-db
+#           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_pvcs":["data-ao-postgres-0"]}'
+#           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_namespaces":["syntarogation-ao-nov-db"]}'
+#           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_statefulsets":["ao-postgres"]}'
+
+- name: Exercise teardown guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run teardown guards
+      ansible.builtin.include_role:
+        name: ao_ea_teardown
+        tasks_from: guards
+
+    - name: Require fail-closed teardown_completed
+      ansible.builtin.assert:
+        that:
+          - teardown_completed is defined
+          - not (teardown_completed | bool)
+        fail_msg: >-
+          teardown_completed must be false until CR delete and GC succeed.
+        success_msg: "teardown_completed is false until cluster teardown finishes."
+
+    - name: Require fed delete lists to spare DB resources
+      ansible.builtin.assert:
+        that:
+          - teardown_target_ns == app_ns
+          - teardown_target_ns != db_ns
+          - db_ns not in (teardown_delete_namespaces | default([]))
+          - pg_pvc_name not in (teardown_delete_pvcs | default([]))
+          - pg_service_name not in (teardown_delete_statefulsets | default([]))
+        fail_msg: >-
+          Teardown guards must feed teardown_target_ns={{ app_ns }} and must
+          not request delete of {{ db_ns }}, {{ pg_pvc_name }}, or
+          {{ pg_service_name }}.

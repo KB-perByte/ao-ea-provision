@@ -10,6 +10,9 @@ teardown_delete_namespaces: []
 # PVC names requested for deletion. Must never include pg_pvc_name.
 teardown_delete_pvcs: []
 
+# StatefulSet names requested for deletion. Must never include pg_service_name.
+teardown_delete_statefulsets: []
+
 # k8s module host comes from cluster_api. Token/kubeconfig come from AAP
 # Kubernetes credentials (K8S_AUTH_*) or optional extra-vars k8s_api_key /
 # k8s_kubeconfig. Do not store secrets in this repo.

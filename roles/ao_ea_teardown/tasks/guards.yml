@@ -1,0 +1,32 @@
+---
+# Cluster-free: feed safety-assert vars, refuse app_ns == db_ns, refuse
+# requested deletes of db_ns / pg_pvc_name / pg_service_name.
+# Does not call k8s. v1 policy: keep app_ns; do not delete namespaces.
+
+- name: Require teardown identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - db_ns is defined and (db_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - pg_pvc_name is defined and (pg_pvc_name | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
+    fail_msg: >-
+      Teardown requires app_ns, db_ns, ao_name, pg_pvc_name, and
+      pg_service_name to be defined and non-empty.
+
+- name: Initialize teardown fact fail-closed
+  ansible.builtin.set_fact:
+    teardown_completed: false
+
+- name: Feed safety-assert vars (keep app_ns; never delete DB resources)
+  ansible.builtin.set_fact:
+    teardown_target_ns: "{{ app_ns }}"
+    teardown_delete_namespaces: []
+    teardown_delete_pvcs: []
+    teardown_delete_statefulsets: []
+
+- name: Run shared teardown safety asserts
+  ansible.builtin.include_role:
+    name: ao_ea_common
+    tasks_from: safety_assert

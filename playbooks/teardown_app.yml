@@ -1,0 +1,14 @@
+---
+# JT ea-teardown-app.
+# v1 policy: keep app_ns; delete AutomationOrchestrator CR and wait for
+# ownerRef GC. Never delete db_ns, the DB PVC, or the DB StatefulSet.
+# App-ns DB secrets are left in place (ensure-secrets recreates if missing).
+
+- name: Teardown early-access AO app (keep DB)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA teardown
+      ansible.builtin.include_role:
+        name: ao_ea_teardown

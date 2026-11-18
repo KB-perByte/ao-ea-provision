@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: ao_ea_teardown
+  description: Delete the AO CR in app_ns and wait for GC; never touch the DB namespace, PVC, or StatefulSet
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

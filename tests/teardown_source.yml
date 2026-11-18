@@ -1,0 +1,50 @@
+---
+# Static contract: teardown must include var-driven safety asserts and must
+# not hard-code k8s deletes of db_ns, the DB PVC, or the DB StatefulSet.
+
+- name: Assert teardown sources cannot bypass DB guards
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    teardown_sources:
+      - "{{ playbook_dir }}/../playbooks/teardown_app.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_teardown/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_teardown/tasks/guards.yml"
+  tasks:
+    - name: Load teardown source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ teardown_sources }}"
+      register: teardown_slurps
+
+    - name: Combine teardown source text
+      ansible.builtin.set_fact:
+        teardown_text: "{{ teardown_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Require safety-assert wiring before any delete
+      ansible.builtin.assert:
+        that:
+          - "'teardown_target_ns' in teardown_text"
+          - "'teardown_delete_namespaces' in teardown_text"
+          - "'teardown_delete_pvcs' in teardown_text"
+          - "'tasks_from: safety_assert' in teardown_text"
+          - "'ao_ea_common' in teardown_text"
+          - "'teardown_completed' in teardown_text"
+          - "'AutomationOrchestrator' in teardown_text"
+        fail_msg: >-
+          teardown_app must feed teardown_target_ns / teardown_delete_namespaces
+          / teardown_delete_pvcs, include ao_ea_common tasks_from: safety_assert,
+          delete the AutomationOrchestrator CR, and produce teardown_completed.
+
+    - name: Forbid hard-coded deletes of DB namespace, PVC, or StatefulSet
+      ansible.builtin.assert:
+        that:
+          - "'kind: PersistentVolumeClaim' not in teardown_text"
+          - "'kind: Namespace' not in teardown_text"
+          - "'kind: StatefulSet' not in teardown_text"
+          - "'oc delete' not in teardown_text"
+        fail_msg: >-
+          Teardown sources must not delete Namespace, PersistentVolumeClaim, or
+          StatefulSet objects, and must not shell out to oc delete. Delete the
+          AutomationOrchestrator CR in app_ns and wait for ownerRef GC.

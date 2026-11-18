@@ -1,0 +1,4 @@
+---
+# Wait for CR absence and ownerRef GC (seconds). 10m matches the JT budget.
+teardown_wait_timeout: 600
+teardown_wait_delay: 10
