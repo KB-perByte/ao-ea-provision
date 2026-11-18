@@ -1,0 +1,19 @@
+---
+# Image/size match the dogfood runbook (quay SCLORG PG 15, gp3-csi 20Gi).
+# Inventory group_vars may override. Passwords come from AAP extra_vars /
+# credentials (pg_* or vault_pg_*). Never store real passwords in this repo.
+
+pg_image: quay.io/sclorg/postgresql-15-c9s:latest
+pg_pvc_size: 20Gi
+pg_storage_class: gp3-csi
+pg_max_connections: 200
+pg_port: 5432
+pg_secret_name: ao-postgres-credentials
+pg_wait_timeout: 300
+pg_wait_delay: 5
+k8s_validate_certs: true
+
+# Injected from AAP extra_vars or Controller credentials.
+pg_admin_password: "{{ vault_pg_admin_password | default('') }}"
+pg_orchestrator_password: "{{ vault_pg_orchestrator_password | default('') }}"
+pg_temporal_password: "{{ vault_pg_temporal_password | default('') }}"

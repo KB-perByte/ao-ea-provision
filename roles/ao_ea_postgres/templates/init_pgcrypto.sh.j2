@@ -1,0 +1,23 @@
+set -euo pipefail
+# Drop pgcrypto only when it exists and is not owned by orchestrator.
+# CREATE EXTENSION runs as orchestrator (not postgres) so AO migrations
+# do not fail with "must be owner of extension pgcrypto".
+psql -U postgres -d orchestrator -q -v ON_ERROR_STOP=1 <<'EOSQL'
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_extension e
+    JOIN pg_roles r ON r.oid = e.extowner
+    WHERE e.extname = 'pgcrypto'
+      AND r.rolname <> 'orchestrator'
+  ) THEN
+    EXECUTE 'DROP EXTENSION pgcrypto';
+  END IF;
+END
+$$;
+EOSQL
+psql -U orchestrator -d orchestrator -q -v ON_ERROR_STOP=1 <<'EOSQL'
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+EOSQL
+psql -U postgres -d orchestrator -v ON_ERROR_STOP=1 -tAc "SELECT r.rolname FROM pg_extension e JOIN pg_roles r ON r.oid = e.extowner WHERE e.extname = 'pgcrypto'"

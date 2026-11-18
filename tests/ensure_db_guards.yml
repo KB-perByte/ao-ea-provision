@@ -1,0 +1,33 @@
+---
+# Cluster-free ensure_db guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/ensure_db_guards.yml
+# Negative: ansible-playbook tests/ensure_db_guards.yml -e pg_admin_password=''
+#           ansible-playbook tests/ensure_db_guards.yml -e pg_pvc_name=other-pvc
+
+- name: Exercise postgres ensure guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    pg_admin_password: placeholder
+    pg_orchestrator_password: placeholder
+    pg_temporal_password: placeholder
+  tasks:
+    - name: Run postgres ensure guards
+      ansible.builtin.include_role:
+        name: ao_ea_postgres
+        tasks_from: guards
+
+    - name: Require fail-closed db facts and derived host
+      ansible.builtin.assert:
+        that:
+          - pg_host == pg_service_name ~ '.' ~ db_ns ~ '.svc'
+          - pg_pod_name == pg_service_name ~ '-0'
+          - pvc_bound is defined
+          - not (pvc_bound | bool)
+          - db_ready is defined
+          - not (db_ready | bool)
+        fail_msg: >-
+          ensure_db guards must set pg_host={{ pg_service_name }}.{{ db_ns }}.svc
+          and leave pvc_bound/db_ready false until the cluster path succeeds.
+        success_msg: "pg_host={{ pg_host }}; pvc_bound and db_ready are false until Ready."

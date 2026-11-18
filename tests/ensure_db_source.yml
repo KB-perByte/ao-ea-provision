@@ -1,0 +1,87 @@
+---
+# Static contract: ensure_db must reuse a Bound PVC, never delete it,
+# create pgcrypto as orchestrator, and produce pg_host / pvc_bound / db_ready.
+
+- name: Assert ensure_db sources keep the PVC and pgcrypto owner
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    postgres_sources:
+      - "{{ playbook_dir }}/../playbooks/ensure_db.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/defaults/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/statefulset.yml.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/service.yml.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/secret.yml.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/init_roles.sh.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/init_pgcrypto.sh.j2"
+  tasks:
+    - name: Load postgres source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ postgres_sources }}"
+      register: postgres_slurps
+
+    - name: Combine postgres source text
+      ansible.builtin.set_fact:
+        postgres_text: "{{ postgres_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Load pgcrypto init template
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/init_pgcrypto.sh.j2"
+      register: pgcrypto_slurp
+
+    - name: Decode pgcrypto init template
+      ansible.builtin.set_fact:
+        pgcrypto_text: "{{ pgcrypto_slurp.content | b64decode }}"
+
+    - name: Require SCLORG PG 15 layout and produced facts
+      ansible.builtin.assert:
+        that:
+          - "'quay.io/sclorg/postgresql-15-c9s' in postgres_text"
+          - "'POSTGRESQL_MAX_CONNECTIONS' in postgres_text"
+          - "'volumeClaimTemplates' in postgres_text"
+          - "'gp3-csi' in postgres_text"
+          - "'20Gi' in postgres_text"
+          - "'/var/lib/pgsql/data' in postgres_text"
+          - "'pg_host' in postgres_text"
+          - "'pvc_bound' in postgres_text"
+          - "'db_ready' in postgres_text"
+          - "'vault_pg_admin_password' in postgres_text"
+          - "'vault_pg_orchestrator_password' in postgres_text"
+          - "'vault_pg_temporal_password' in postgres_text"
+        fail_msg: >-
+          ensure_db must use quay SCLORG postgresql-15, max_connections,
+          volumeClaimTemplates (gp3-csi/20Gi), mount /var/lib/pgsql/data,
+          consume vault_pg_* password var names, and produce pg_host,
+          pvc_bound, and db_ready.
+
+    - name: Split pgcrypto script at orchestrator psql
+      ansible.builtin.set_fact:
+        pgcrypto_before_orch: "{{ pgcrypto_text.split('psql -U orchestrator')[0] }}"
+        pgcrypto_after_orch: "{{ pgcrypto_text.split('psql -U orchestrator')[1] | default('') }}"
+
+    - name: Require pgcrypto created as orchestrator not postgres
+      ansible.builtin.assert:
+        that:
+          - "'psql -U orchestrator -d orchestrator' in pgcrypto_text"
+          - "'CREATE EXTENSION IF NOT EXISTS pgcrypto' in pgcrypto_after_orch"
+          - "'CREATE EXTENSION IF NOT EXISTS pgcrypto' not in pgcrypto_before_orch"
+          - "'rolname' in pgcrypto_before_orch"
+        fail_msg: >-
+          CREATE EXTENSION pgcrypto must run as user orchestrator. Drop only
+          when the existing owner is not orchestrator.
+
+    - name: Forbid deleting the DB PVC or any ensure_db object
+      ansible.builtin.assert:
+        that:
+          - "'state: absent' not in postgres_text"
+          - "'oc delete' not in postgres_text"
+          - "'k8s_info' in postgres_text"
+          - "'volumeClaimTemplates' in postgres_text"
+        fail_msg: >-
+          ensure_db must never delete the PVC (no state=absent, no oc delete).
+          Look the PVC up with k8s_info and create it only via StatefulSet
+          volumeClaimTemplates so a Bound volume is reused.

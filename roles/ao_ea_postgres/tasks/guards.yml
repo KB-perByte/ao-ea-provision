@@ -1,0 +1,45 @@
+---
+# Cluster-free: require identifiers and AAP-injected passwords.
+# Initializes pg_host / pvc_bound / db_ready fail-closed. Does not call k8s.
+
+- name: Require postgres ensure identifiers
+  ansible.builtin.assert:
+    that:
+      - db_ns is defined and (db_ns | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
+      - pg_pvc_name is defined and (pg_pvc_name | length) > 0
+      - pg_image is defined and (pg_image | length) > 0
+      - pg_pvc_size is defined and (pg_pvc_size | length) > 0
+      - pg_storage_class is defined and (pg_storage_class | length) > 0
+    fail_msg: >-
+      ensure_db requires db_ns, pg_service_name, pg_pvc_name, pg_image,
+      pg_pvc_size, and pg_storage_class to be defined and non-empty.
+
+- name: Require PVC name to match volumeClaimTemplates
+  ansible.builtin.assert:
+    that:
+      - pg_pvc_name == 'data-' ~ pg_service_name ~ '-0'
+    fail_msg: >-
+      pg_pvc_name {{ pg_pvc_name }} must be data-{{ pg_service_name }}-0
+      (volumeClaimTemplates name data, replica 0). Refusing a mismatch
+      that would create a second PVC.
+
+- name: Require postgres passwords from AAP credentials
+  ansible.builtin.assert:
+    that:
+      - pg_admin_password is defined and (pg_admin_password | length) > 0
+      - pg_orchestrator_password is defined and (pg_orchestrator_password | length) > 0
+      - pg_temporal_password is defined and (pg_temporal_password | length) > 0
+    fail_msg: >-
+      ensure_db requires pg_admin_password, pg_orchestrator_password, and
+      pg_temporal_password (or vault_pg_admin_password /
+      vault_pg_orchestrator_password / vault_pg_temporal_password) from AAP
+      credentials. Do not hardcode real passwords in the repo.
+    success_msg: Postgres passwords are present (values not shown).
+
+- name: Initialize postgres facts fail-closed
+  ansible.builtin.set_fact:
+    pg_host: "{{ pg_service_name }}.{{ db_ns }}.svc"
+    pg_pod_name: "{{ pg_service_name }}-0"
+    pvc_bound: false
+    db_ready: false

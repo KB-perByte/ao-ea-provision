@@ -1,0 +1,156 @@
+---
+# Ensure db_ns + StatefulSet + Service + init SQL.
+# Never delete PVC pg_pvc_name. Bound PVC is reused via volumeClaimTemplates.
+
+- name: Run postgres ensure guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Ensure PostgreSQL in db_ns
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Ensure the DB namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ db_ns }}"
+
+    - name: Look up the existing DB PVC
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        name: "{{ pg_pvc_name }}"
+        namespace: "{{ db_ns }}"
+      register: pg_pvc
+
+    - name: Record PVC Bound without recreating it
+      ansible.builtin.set_fact:
+        pvc_bound: "{{ (pg_pvc.resources | default([]) | length > 0) and ((pg_pvc.resources[0].status.phase | default('')) == 'Bound') }}"
+
+    - name: Skip PVC recreate when Bound
+      ansible.builtin.debug:
+        msg: >-
+          PVC {{ pg_pvc_name }} in {{ db_ns }} is Bound; will not recreate
+          or delete it. Ensuring StatefulSet/Service and pod Ready only.
+      when: pvc_bound | bool
+
+    - name: Apply PostgreSQL credentials Secret
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'secret.yml.j2') }}"
+      no_log: true
+
+    - name: Apply PostgreSQL Service
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'service.yml.j2') }}"
+
+    - name: Apply PostgreSQL StatefulSet
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'statefulset.yml.j2') }}"
+
+    - name: Wait until the PostgreSQL pod is Ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ db_ns }}"
+        label_selectors:
+          - "app={{ pg_service_name }}"
+        wait: true
+        wait_sleep: "{{ pg_wait_delay | int }}"
+        wait_timeout: "{{ pg_wait_timeout | int }}"
+        wait_condition:
+          type: Ready
+          status: "True"
+      register: pg_pods
+
+    - name: Require the PostgreSQL pod
+      ansible.builtin.assert:
+        that:
+          - pg_pods.resources | default([]) | length > 0
+        fail_msg: >-
+          PostgreSQL pod with label app={{ pg_service_name }} was not Ready
+          in {{ db_ns }} within {{ pg_wait_timeout }}s.
+
+    - name: Re-read the DB PVC after the StatefulSet is up
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        name: "{{ pg_pvc_name }}"
+        namespace: "{{ db_ns }}"
+      register: pg_pvc_after
+
+    - name: Require the DB PVC to be Bound
+      ansible.builtin.assert:
+        that:
+          - pg_pvc_after.resources | default([]) | length > 0
+          - (pg_pvc_after.resources[0].status.phase | default('')) == 'Bound'
+        fail_msg: >-
+          PVC {{ pg_pvc_name }} in {{ db_ns }} is not Bound after ensuring
+          the StatefulSet.
+        success_msg: "PVC {{ pg_pvc_name }} is Bound."
+
+    - name: Record PVC Bound
+      ansible.builtin.set_fact:
+        pvc_bound: true
+
+    - name: Render role and database init command
+      ansible.builtin.set_fact:
+        pg_init_roles_cmd: "/bin/bash -lc {{ lookup('template', 'init_roles.sh.j2') | quote }}"
+      no_log: true
+
+    - name: Ensure roles and databases
+      kubernetes.core.k8s_exec:
+        namespace: "{{ db_ns }}"
+        pod: "{{ pg_pod_name }}"
+        command: "{{ pg_init_roles_cmd }}"
+      register: pg_init_roles
+      no_log: true
+      changed_when: false
+
+    - name: Require role init to succeed
+      ansible.builtin.assert:
+        that:
+          - (pg_init_roles.rc | default(pg_init_roles.return_code | default(1))) == 0
+        fail_msg: PostgreSQL role and database init failed (output redacted).
+
+    - name: Ensure pgcrypto as orchestrator
+      kubernetes.core.k8s_exec:
+        namespace: "{{ db_ns }}"
+        pod: "{{ pg_pod_name }}"
+        command: "/bin/bash -lc {{ lookup('template', 'init_pgcrypto.sh.j2') | quote }}"
+      register: pg_init_pgcrypto
+      changed_when: false
+
+    - name: Require pgcrypto as orchestrator
+      ansible.builtin.assert:
+        that:
+          - (pg_init_pgcrypto.rc | default(pg_init_pgcrypto.return_code | default(1))) == 0
+          - (pg_init_pgcrypto.stdout | default('')) | trim == 'orchestrator'
+        fail_msg: >-
+          pgcrypto must be created as user orchestrator (not postgres).
+          rc={{ pg_init_pgcrypto.rc | default(pg_init_pgcrypto.return_code | default('unknown')) }}
+          stdout={{ pg_init_pgcrypto.stdout | default('') | trim }}
+          stderr={{ pg_init_pgcrypto.stderr | default('') | trim }}
+        success_msg: pgcrypto exists and is owned by orchestrator.
+
+- name: Mark the database ready
+  ansible.builtin.set_fact:
+    db_ready: true
+
+- name: Show postgres ensure result
+  ansible.builtin.debug:
+    msg:
+      pg_host: "{{ pg_host }}"
+      pvc_bound: "{{ pvc_bound }}"
+      db_ready: "{{ db_ready }}"
+      db_ns: "{{ db_ns }}"
+      pg_pvc_name: "{{ pg_pvc_name }}"

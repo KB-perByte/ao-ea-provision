@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ pg_service_name }}
+  namespace: {{ db_ns }}
+  labels:
+    app: {{ pg_service_name }}
+spec:
+  serviceName: {{ pg_service_name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ pg_service_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ pg_service_name }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ pg_image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: {{ pg_port | int }}
+              protocol: TCP
+          env:
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ pg_secret_name }}
+                  key: admin-password
+            - name: POSTGRESQL_USER
+              value: orchestrator
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ pg_secret_name }}
+                  key: orchestrator-password
+            - name: POSTGRESQL_DATABASE
+              value: orchestrator
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "{{ pg_max_connections }}"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ pg_storage_class }}
+        resources:
+          requests:
+            storage: {{ pg_pvc_size }}

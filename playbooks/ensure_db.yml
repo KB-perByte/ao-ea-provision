@@ -1,0 +1,15 @@
+---
+# JT ea-ensure-db.
+# Ensure DB namespace, StatefulSet, Service, users/DBs, and pgcrypto.
+# Never delete PVC pg_pvc_name. If that PVC is Bound, only ensure
+# StatefulSet/Service and pod Ready (volumeClaimTemplates reuse it).
+# CREATE EXTENSION pgcrypto as user orchestrator, not postgres.
+
+- name: Ensure early-access AO PostgreSQL
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA postgres ensure
+      ansible.builtin.include_role:
+        name: ao_ea_postgres

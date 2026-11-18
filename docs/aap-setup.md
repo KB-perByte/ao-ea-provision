@@ -40,6 +40,46 @@ oc get statefulset ao-postgres -n syntarogation-ao-nov-db
 # Re-run JT: success / no-op; PVC still Bound
 ```
 
+## Ensure DB (`ea-ensure-db`)
+
+Playbook: `playbooks/ensure_db.yml`.
+
+Ensures Namespace `db_ns`, StatefulSet `pg_service_name` (quay SCLORG
+PostgreSQL 15, `POSTGRESQL_MAX_CONNECTIONS=200`), Service `pg_service_name`,
+and PVC `pg_pvc_name` via `volumeClaimTemplates` (`gp3-csi`, 20Gi). **Never
+deletes** that PVC. If it is already Bound, the play only ensures
+StatefulSet/Service and pod Ready.
+
+Init SQL (idempotent): roles `orchestrator` / `temporal`; databases
+`orchestrator`, `temporal`, `temporal_visibility`; `CREATE EXTENSION pgcrypto`
+as user `orchestrator` (not `postgres`).
+
+Produces facts `pg_host`, `pvc_bound`, `db_ready`.
+
+Passwords **must** come from AAP credentials as extra-vars (never commit
+real values):
+
+| extra-var | vault alias | Used for |
+|---|---|---|
+| `pg_admin_password` | `vault_pg_admin_password` | SCLORG `POSTGRESQL_ADMIN_PASSWORD` (first boot) |
+| `pg_orchestrator_password` | `vault_pg_orchestrator_password` | role `orchestrator` |
+| `pg_temporal_password` | `vault_pg_temporal_password` | role `temporal` |
+
+AAP Job Template creation is human-owned.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-ensure-db
+oc get pvc -n syntarogation-ao-nov-db
+# expected: data-ao-postgres-0 Bound (same volumeName as before)
+
+oc get statefulset,svc,pod -n syntarogation-ao-nov-db
+# expected: ao-postgres 1/1; pod Ready
+
+# Re-run JT: success / no-op; PVC still Bound; same volumeName
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

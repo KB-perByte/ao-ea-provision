@@ -17,3 +17,8 @@ operator_ns: automation-orchestrator-operator-system
 operator_subscription_name: automation-orchestrator-operator
 script_nodes_enabled: true
 pg_pvc_name: data-ao-postgres-0
+pg_image: quay.io/sclorg/postgresql-15-c9s:latest
+pg_pvc_size: 20Gi
+pg_storage_class: gp3-csi
+pg_max_connections: 200
+pg_port: 5432
