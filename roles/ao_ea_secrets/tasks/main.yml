@@ -1,0 +1,144 @@
+---
+# Ensure app_ns + AO CR secretRef Secrets. Optional PG password connect.
+
+- name: Run secrets ensure guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Ensure app-ns PG secrets
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Ensure the app namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ app_ns }}"
+
+    - name: Apply orchestrator PG credentials Secret
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'orchestrator_pg_credentials.yml.j2') }}"
+      no_log: true
+
+    - name: Apply temporal PG credentials Secret
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'temporal_pg_credentials.yml.j2') }}"
+      no_log: true
+
+    - name: Confirm app-ns PG secrets exist
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ item }}"
+        namespace: "{{ app_ns }}"
+      loop:
+        - "{{ orchestrator_pg_secret_name }}"
+        - "{{ temporal_pg_secret_name }}"
+      loop_control:
+        label: "{{ item }}"
+      register: app_pg_secrets
+      no_log: true
+
+    - name: Require both app-ns PG secrets
+      ansible.builtin.assert:
+        that:
+          - app_pg_secrets.results | length == 2
+          - app_pg_secrets.results | map(attribute='resources') | map('length') | min > 0
+        fail_msg: >-
+          Secrets {{ orchestrator_pg_secret_name }} and
+          {{ temporal_pg_secret_name }} must exist in {{ app_ns }}.
+        success_msg: >-
+          Secrets {{ orchestrator_pg_secret_name }} and
+          {{ temporal_pg_secret_name }} are present in {{ app_ns }}.
+
+- name: Mark app-ns PG secrets ready
+  ansible.builtin.set_fact:
+    secrets_ready: true
+
+- name: Skip optional PostgreSQL connect check
+  ansible.builtin.debug:
+    msg: >-
+      Connect check skipped (secrets_verify_connect=false). Set
+      secrets_verify_connect=true to exec a read-only psql as the
+      secret users. Skip is for offline / unreachable PostgreSQL.
+  when: not (secrets_verify_connect | bool)
+
+- name: Verify secret passwords against PostgreSQL
+  when: secrets_verify_connect | bool
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Wait until the PostgreSQL pod is Ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ db_ns }}"
+        label_selectors:
+          - "app={{ pg_service_name }}"
+        wait: true
+        wait_sleep: "{{ pg_wait_delay | int }}"
+        wait_timeout: "{{ pg_wait_timeout | int }}"
+        wait_condition:
+          type: Ready
+          status: "True"
+      register: pg_pods
+
+    - name: Require the PostgreSQL pod for connect check
+      ansible.builtin.assert:
+        that:
+          - pg_pods.resources | default([]) | length > 0
+        fail_msg: >-
+          PostgreSQL pod with label app={{ pg_service_name }} was not Ready
+          in {{ db_ns }}. Cannot verify secret passwords. Skip with
+          secrets_verify_connect=false when offline.
+
+    - name: Connect as secret users (read-only)
+      kubernetes.core.k8s_exec:
+        namespace: "{{ db_ns }}"
+        pod: "{{ pg_pod_name }}"
+        command: "/bin/bash -lc {{ lookup('template', 'verify_connect.sh.j2') | quote }}"
+      register: pg_connect
+      no_log: true
+      changed_when: false
+      failed_when: false
+
+    - name: Fail on password mismatch / DB reuse
+      ansible.builtin.assert:
+        that:
+          - "'password authentication failed' not in ((pg_connect.stderr | default('')) ~ (pg_connect.stdout | default('')))"
+        fail_msg: password mismatch / DB reuse
+
+    - name: Require PostgreSQL connect check succeeded
+      ansible.builtin.assert:
+        that:
+          - (pg_connect.rc | default(pg_connect.return_code | default(1))) == 0
+        fail_msg: >-
+          PostgreSQL connect check failed (not an auth error).
+          Skip with secrets_verify_connect=false when offline.
+        success_msg: Secret users connected to PostgreSQL (read-only).
+
+    - name: Mark secret passwords verified
+      ansible.builtin.set_fact:
+        secrets_verified: true
+
+- name: Show secrets ensure result
+  ansible.builtin.debug:
+    msg:
+      secrets_ready: "{{ secrets_ready }}"
+      secrets_verified: "{{ secrets_verified }}"
+      app_ns: "{{ app_ns }}"
+      pg_service_host: "{{ pg_service_host }}"
+      orchestrator_pg_secret_name: "{{ orchestrator_pg_secret_name }}"
+      temporal_pg_secret_name: "{{ temporal_pg_secret_name }}"

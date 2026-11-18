@@ -1,0 +1,25 @@
+---
+# Secret names and keys match the AO CR secretRef schema (database,
+# username, password). Passwords come from AAP extra_vars / credentials
+# (pg_* or vault_pg_*). Never store real passwords in this repo.
+# Users/DBs must match roles created by ea-ensure-db.
+
+orchestrator_pg_secret_name: orchestrator-pg-credentials
+temporal_pg_secret_name: temporal-pg-credentials
+pg_orchestrator_user: orchestrator
+pg_orchestrator_database: orchestrator
+pg_temporal_user: temporal
+pg_temporal_database: temporal
+pg_port: 5432
+k8s_validate_certs: true
+
+# Optional read-only connect as the secret users. Skip offline / when the
+# PostgreSQL pod is not reachable: -e secrets_verify_connect=false
+secrets_verify_connect: true
+pg_wait_timeout: 300
+pg_wait_delay: 5
+
+# Injected from AAP extra_vars or Controller credentials.
+# Same values as ea-ensure-db role passwords.
+pg_orchestrator_password: "{{ vault_pg_orchestrator_password | default('') }}"
+pg_temporal_password: "{{ vault_pg_temporal_password | default('') }}"

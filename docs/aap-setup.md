@@ -80,6 +80,48 @@ oc get statefulset,svc,pod -n syntarogation-ao-nov-db
 # Re-run JT: success / no-op; PVC still Bound; same volumeName
 ```
 
+## Ensure secrets (`ea-ensure-secrets`)
+
+Playbook: `playbooks/ensure_secrets.yml`.
+
+Ensures Namespace `app_ns` and applies Secrets `orchestrator-pg-credentials`
+and `temporal-pg-credentials` in that namespace. Keys match the AO CR
+`secretRef` schema (`database`, `username`, `password`). Users/databases
+are `orchestrator` / `temporal` — the same roles `ea-ensure-db` creates.
+
+Passwords **must** come from AAP credentials as extra-vars and **must**
+match `ea-ensure-db` (never commit real values):
+
+| extra-var | vault alias | Secret / key |
+|---|---|---|
+| `pg_orchestrator_password` | `vault_pg_orchestrator_password` | `orchestrator-pg-credentials` / `password` |
+| `pg_temporal_password` | `vault_pg_temporal_password` | `temporal-pg-credentials` / `password` |
+
+Optional read-only connect: exec `psql` in the PostgreSQL pod as those
+users (TCP to localhost so `pg_hba` uses password auth). Auth failure
+fails the play with `password mismatch / DB reuse`.
+
+**Offline / unreachable PG:** skip the connect check with
+`-e secrets_verify_connect=false`. Secrets are still applied. Default is
+`true` for the live JT.
+
+AAP Job Template creation is human-owned.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-ensure-secrets
+oc get secret orchestrator-pg-credentials temporal-pg-credentials \
+  -n syntarogation-ao-nov
+# expected: both present (Opaque)
+
+oc get secret orchestrator-pg-credentials -n syntarogation-ao-nov \
+  -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
+# expected: database / password / username (keys only; do not extract values)
+
+# Re-run JT: success / no-op; same secret names
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

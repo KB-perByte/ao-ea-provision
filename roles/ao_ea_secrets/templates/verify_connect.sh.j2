@@ -1,0 +1,7 @@
+set -euo pipefail
+# TCP to localhost so pg_hba uses password auth (unix socket is often trust).
+# Passwords must match DB roles from ea-ensure-db.
+export PGPASSWORD={{ pg_orchestrator_password | quote }}
+psql -h 127.0.0.1 -p {{ pg_port | int }} -U {{ pg_orchestrator_user | quote }} -d {{ pg_orchestrator_database | quote }} -tAc 'SELECT 1'
+export PGPASSWORD={{ pg_temporal_password | quote }}
+psql -h 127.0.0.1 -p {{ pg_port | int }} -U {{ pg_temporal_user | quote }} -d {{ pg_temporal_database | quote }} -tAc 'SELECT 1'

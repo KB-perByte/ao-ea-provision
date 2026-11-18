@@ -1,0 +1,45 @@
+---
+# Cluster-free: require identifiers and AAP-injected passwords.
+# Initializes secrets_ready / secrets_verified fail-closed. Does not call k8s.
+
+- name: Require secrets ensure identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - db_ns is defined and (db_ns | length) > 0
+      - pg_service_host is defined and (pg_service_host | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
+      - orchestrator_pg_secret_name is defined and (orchestrator_pg_secret_name | length) > 0
+      - temporal_pg_secret_name is defined and (temporal_pg_secret_name | length) > 0
+    fail_msg: >-
+      ensure_secrets requires app_ns, db_ns, pg_service_host,
+      pg_service_name, orchestrator_pg_secret_name, and
+      temporal_pg_secret_name to be defined and non-empty.
+
+- name: Require pg_service_host to match db Service DNS
+  ansible.builtin.assert:
+    that:
+      - pg_service_host == pg_service_name ~ '.' ~ db_ns ~ '.svc'
+    fail_msg: >-
+      pg_service_host {{ pg_service_host }} must be
+      {{ pg_service_name }}.{{ db_ns }}.svc (AO CR postgres.host /
+      runbook PG Service DNS).
+
+- name: Require app PG passwords from AAP credentials
+  ansible.builtin.assert:
+    that:
+      - pg_orchestrator_password is defined and (pg_orchestrator_password | length) > 0
+      - pg_temporal_password is defined and (pg_temporal_password | length) > 0
+    fail_msg: >-
+      ensure_secrets requires pg_orchestrator_password and
+      pg_temporal_password (or vault_pg_orchestrator_password /
+      vault_pg_temporal_password) from AAP credentials. These must
+      match the DB roles from ea-ensure-db. Do not hardcode real
+      passwords in the repo.
+    success_msg: App PG passwords are present (values not shown).
+
+- name: Initialize secrets facts fail-closed
+  ansible.builtin.set_fact:
+    pg_pod_name: "{{ pg_service_name }}-0"
+    secrets_ready: false
+    secrets_verified: false

@@ -22,3 +22,9 @@ pg_pvc_size: 20Gi
 pg_storage_class: gp3-csi
 pg_max_connections: 200
 pg_port: 5432
+orchestrator_pg_secret_name: orchestrator-pg-credentials
+temporal_pg_secret_name: temporal-pg-credentials
+pg_orchestrator_user: orchestrator
+pg_orchestrator_database: orchestrator
+pg_temporal_user: temporal
+pg_temporal_database: temporal
