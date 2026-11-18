@@ -1,0 +1,36 @@
+---
+# Cluster-free: require identifiers. Initializes cr_applied / cr_accepted
+# fail-closed. Does not call k8s.
+
+- name: Require apply_ao_cr identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - pg_service_host is defined and (pg_service_host | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
+      - db_ns is defined and (db_ns | length) > 0
+      - route_host is defined and (route_host | length) > 0
+      - orchestrator_pg_secret_name is defined and (orchestrator_pg_secret_name | length) > 0
+      - temporal_pg_secret_name is defined and (temporal_pg_secret_name | length) > 0
+    fail_msg: >-
+      apply_ao_cr requires app_ns, ao_name, pg_service_host,
+      pg_service_name, db_ns, route_host, orchestrator_pg_secret_name,
+      and temporal_pg_secret_name to be defined and non-empty.
+
+- name: Require pg_service_host to match db Service DNS
+  ansible.builtin.assert:
+    that:
+      - pg_service_host == pg_service_name ~ '.' ~ db_ns ~ '.svc'
+    fail_msg: >-
+      pg_service_host {{ pg_service_host }} must be
+      {{ pg_service_name }}.{{ db_ns }}.svc (AO CR postgres.host /
+      runbook PG Service DNS).
+
+- name: Initialize apply_ao_cr facts fail-closed
+  ansible.builtin.set_fact:
+    cr_applied: false
+    cr_accepted: false
+    cr_exists: false
+    configuration_valid: false
+    ready_status: ""

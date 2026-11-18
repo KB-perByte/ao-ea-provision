@@ -1,0 +1,36 @@
+---
+# Cluster-free apply_ao_cr guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/apply_ao_cr_guards.yml
+# Negative: ansible-playbook tests/apply_ao_cr_guards.yml -e app_ns=''
+#           ansible-playbook tests/apply_ao_cr_guards.yml -e ao_name=''
+#           ansible-playbook tests/apply_ao_cr_guards.yml -e route_host=''
+#           ansible-playbook tests/apply_ao_cr_guards.yml -e pg_service_host=wrong.svc
+
+- name: Exercise apply_ao_cr guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run apply_ao_cr guards
+      ansible.builtin.include_role:
+        name: ao_ea_instance
+        tasks_from: guards
+
+    - name: Require fail-closed apply facts and DNS host
+      ansible.builtin.assert:
+        that:
+          - cr_applied is defined
+          - not (cr_applied | bool)
+          - cr_accepted is defined
+          - not (cr_accepted | bool)
+          - cr_exists is defined
+          - not (cr_exists | bool)
+          - not (configuration_valid | bool)
+          - pg_service_host == pg_service_name ~ '.' ~ db_ns ~ '.svc'
+        fail_msg: >-
+          apply_ao_cr guards must leave cr_applied/cr_accepted false until
+          apply and ConfigurationValid succeed, and pg_service_host must
+          match {{ pg_service_name }}.{{ db_ns }}.svc.
+        success_msg: >-
+          cr_applied and cr_accepted are false until apply;
+          pg_service_host={{ pg_service_host }}.

@@ -1,0 +1,19 @@
+apiVersion: aap.ansible.com/v1alpha1
+kind: AutomationOrchestrator
+metadata:
+  name: {{ ao_name }}
+  namespace: {{ app_ns }}
+spec:
+  postgres:
+    host: {{ pg_service_host }}
+    port: {{ pg_port | int }}
+    sslMode: disable
+    backendDatabase:
+      secretRef:
+        name: {{ orchestrator_pg_secret_name }}
+    temporalDatabase:
+      secretRef:
+        name: {{ temporal_pg_secret_name }}
+  ingress:
+    type: Route
+    host: {{ route_host }}

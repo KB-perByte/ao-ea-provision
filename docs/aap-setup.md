@@ -162,6 +162,41 @@ oc get subscription automation-orchestrator-operator \
 # early-access — expect fail; Subscription must be unchanged
 ```
 
+## Apply AO CR (`ea-apply-ao-cr`)
+
+Playbook: `playbooks/apply_ao_cr.yml`.
+
+Applies `AutomationOrchestrator` `ao_name` in `app_ns` (BYO PostgreSQL +
+OpenShift Route). `postgres.host` is `pg_service_host`. `secretRef` names
+are `orchestrator-pg-credentials` / `temporal-pg-credentials` (same Secrets
+`ea-ensure-secrets` creates). `ingress.type` is `Route`; host is
+`route_host`. `sslMode: disable` matches the SCLORG PostgreSQL in `db_ns`.
+
+Waits **briefly** (~90s) for operator `ConfigurationValid=True` (spec
+Accepted). It does **not** wait for `Ready=True` — that is
+`ea-health-check` (15–20m).
+
+Produces facts `cr_applied` and `cr_accepted` (`false` until apply and
+ConfigurationValid succeed).
+
+AAP Job Template creation is human-owned.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-apply-ao-cr
+oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov
+# expected: CR present. ConfigurationValid=True. Ready may still be False
+# (ea-health-check waits for Ready).
+
+oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov \
+  -o jsonpath='{.spec.postgres.host}{"\n"}{.spec.ingress.host}{"\n"}'
+# expected: ao-postgres.syntarogation-ao-nov-db.svc
+#           syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+
+# Re-run JT: success / no-op; same CR name and postgres.host
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

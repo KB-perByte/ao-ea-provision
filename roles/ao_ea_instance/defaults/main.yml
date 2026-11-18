@@ -1,0 +1,14 @@
+---
+# CR secretRef names must match ea-ensure-secrets. postgres.host is
+# pg_service_host (db Service DNS). Full Ready wait is ea-health-check.
+# Brief wait here is operator ConfigurationValid (spec Accepted).
+
+orchestrator_pg_secret_name: orchestrator-pg-credentials
+temporal_pg_secret_name: temporal-pg-credentials
+pg_port: 5432
+k8s_validate_certs: true
+
+# Brief only. health_check waits 15–20m for Ready.
+ao_cr_wait_timeout: 90
+ao_cr_wait_delay: 5
+ao_cr_accepted_condition: ConfigurationValid

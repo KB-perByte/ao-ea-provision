@@ -1,0 +1,36 @@
+---
+# Offline CR template render. Does not call k8s.
+# Positive: ansible-playbook tests/apply_ao_cr_template.yml
+
+- name: Render AutomationOrchestrator CR template without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Render AO CR from role template
+      ansible.builtin.set_fact:
+        ao_cr: "{{ lookup('template', playbook_dir ~ '/../roles/ao_ea_instance/templates/automationorchestrator.yml.j2') | from_yaml }}"
+
+    - name: Require runbook CR shape
+      ansible.builtin.assert:
+        that:
+          - ao_cr.apiVersion == 'aap.ansible.com/v1alpha1'
+          - ao_cr.kind == 'AutomationOrchestrator'
+          - ao_cr.metadata.name == ao_name
+          - ao_cr.metadata.namespace == app_ns
+          - ao_cr.spec.postgres.host == pg_service_host
+          - (ao_cr.spec.postgres.port | int) == 5432
+          - ao_cr.spec.postgres.sslMode == 'disable'
+          - ao_cr.spec.postgres.backendDatabase.secretRef.name == 'orchestrator-pg-credentials'
+          - ao_cr.spec.postgres.temporalDatabase.secretRef.name == 'temporal-pg-credentials'
+          - ao_cr.spec.ingress.type == 'Route'
+          - ao_cr.spec.ingress.host == route_host
+          - ao_cr.metadata.name == 'my-orchestrator'
+          - ao_cr.metadata.namespace == 'syntarogation-ao-nov'
+          - ao_cr.spec.postgres.host == 'ao-postgres.syntarogation-ao-nov-db.svc'
+        fail_msg: >-
+          Rendered CR must match the runbook (kind AutomationOrchestrator,
+          BYO PG sslMode disable, secretRef names, ingress Route + host).
+        success_msg: >-
+          Rendered CR {{ ao_cr.metadata.namespace }}/{{ ao_cr.metadata.name }}
+          host={{ ao_cr.spec.postgres.host }} route={{ ao_cr.spec.ingress.host }}.

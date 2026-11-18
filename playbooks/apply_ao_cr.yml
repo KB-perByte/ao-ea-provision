@@ -1,0 +1,13 @@
+---
+# JT ea-apply-ao-cr.
+# Apply AutomationOrchestrator CR in app_ns (BYO PG + Route). Wait briefly
+# for operator ConfigurationValid (Accepted). Full Ready is ea-health-check.
+
+- name: Apply early-access AutomationOrchestrator CR
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA instance apply
+      ansible.builtin.include_role:
+        name: ao_ea_instance

@@ -1,0 +1,44 @@
+---
+# Assert the CR exists and the operator accepted the spec
+# (ConfigurationValid). Callers set cr_exists, configuration_valid,
+# ready_status (from k8s_info or a local mock). Ready is not required;
+# full Ready wait belongs to ea-health-check.
+
+- name: Require the AutomationOrchestrator CR exists
+  ansible.builtin.assert:
+    that:
+      - cr_exists | bool
+    fail_msg: >-
+      AutomationOrchestrator {{ ao_name }} was not found in {{ app_ns }}
+      after apply. The API did not accept the CR.
+    success_msg: >-
+      AutomationOrchestrator {{ ao_name }} is present in {{ app_ns }}.
+
+- name: Require the operator accepted the CR spec
+  ansible.builtin.assert:
+    that:
+      - configuration_valid | bool
+    fail_msg: >-
+      AutomationOrchestrator {{ ao_name }} in {{ app_ns }} is not
+      {{ ao_cr_accepted_condition }}=True (operator has not accepted the
+      spec). Check secretRef Secrets exist in app_ns and postgres.host
+      {{ pg_service_host }}. Full Ready wait belongs to ea-health-check
+      (ready_status={{ ready_status }} is not required here).
+    success_msg: >-
+      Operator accepted {{ ao_name }} ({{ ao_cr_accepted_condition }}=True).
+      Ready is deferred to ea-health-check (ready_status={{ ready_status }}).
+
+- name: Mark CR accepted
+  ansible.builtin.set_fact:
+    cr_accepted: true
+
+- name: Show apply_ao_cr result
+  ansible.builtin.debug:
+    msg:
+      cr_applied: "{{ cr_applied }}"
+      cr_accepted: "{{ cr_accepted }}"
+      ao_name: "{{ ao_name }}"
+      app_ns: "{{ app_ns }}"
+      pg_service_host: "{{ pg_service_host }}"
+      route_host: "{{ route_host }}"
+      ready_status: "{{ ready_status }}"

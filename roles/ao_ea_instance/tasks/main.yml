@@ -1,0 +1,50 @@
+---
+# Apply AutomationOrchestrator CR. Brief wait for ConfigurationValid
+# (Accepted). Do not wait for Ready; that is ea-health-check.
+
+- name: Run apply_ao_cr guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Apply AO CR and wait briefly for Accepted
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Apply AutomationOrchestrator CR
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'automationorchestrator.yml.j2') }}"
+
+    - name: Mark CR applied
+      ansible.builtin.set_fact:
+        cr_applied: true
+
+    - name: Wait briefly for operator ConfigurationValid
+      kubernetes.core.k8s_info:
+        api_version: aap.ansible.com/v1alpha1
+        kind: AutomationOrchestrator
+        name: "{{ ao_name }}"
+        namespace: "{{ app_ns }}"
+        wait: true
+        wait_sleep: "{{ ao_cr_wait_delay | int }}"
+        wait_timeout: "{{ ao_cr_wait_timeout | int }}"
+        wait_condition:
+          type: "{{ ao_cr_accepted_condition }}"
+          status: "True"
+      register: ao_cr_query
+
+    - name: Record CR existence and conditions
+      ansible.builtin.set_fact:
+        cr_exists: "{{ (ao_cr_query.resources | default([])) | length > 0 }}"
+        ao_cr_conditions: "{{ (ao_cr_query.resources[0].status.conditions | default([])) if ((ao_cr_query.resources | default([])) | length > 0) else [] }}"
+
+    - name: Record ConfigurationValid and Ready from status
+      ansible.builtin.set_fact:
+        configuration_valid: "{{ (ao_cr_conditions | selectattr('type', 'equalto', ao_cr_accepted_condition) | map(attribute='status') | list | first | default('')) == 'True' }}"
+        ready_status: "{{ ao_cr_conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | list | first | default('') }}"
+
+- name: Assert the operator accepted the CR
+  ansible.builtin.include_tasks: accepted_assert.yml

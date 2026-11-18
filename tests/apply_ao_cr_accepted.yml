@@ -1,0 +1,34 @@
+---
+# Local Accepted-assert coverage without a cluster. Does not call k8s.
+# Positive: ansible-playbook tests/apply_ao_cr_accepted.yml
+#           (CR exists, ConfigurationValid=True, Ready still False)
+# Negative: ansible-playbook tests/apply_ao_cr_accepted.yml -e cr_exists=false
+#           ansible-playbook tests/apply_ao_cr_accepted.yml -e configuration_valid=false
+
+- name: Exercise apply_ao_cr Accepted assert without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cr_applied: true
+    cr_exists: true
+    configuration_valid: true
+    ready_status: "False"
+  tasks:
+    - name: Run apply_ao_cr Accepted assert
+      ansible.builtin.include_role:
+        name: ao_ea_instance
+        tasks_from: accepted_assert
+
+    - name: Require cr_accepted without waiting for Ready
+      ansible.builtin.assert:
+        that:
+          - cr_accepted is defined
+          - cr_accepted | bool
+          - ready_status == 'False'
+        fail_msg: >-
+          ConfigurationValid with Ready still False must set cr_accepted.
+          Full Ready wait belongs to ea-health-check.
+        success_msg: >-
+          cr_accepted={{ cr_accepted }} with ready_status={{ ready_status }}
+          (Ready deferred to health_check).

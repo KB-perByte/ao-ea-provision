@@ -1,0 +1,92 @@
+---
+# Static contract: apply_ao_cr must apply the runbook CR, wait briefly for
+# ConfigurationValid (Accepted), and must not wait for Ready.
+
+- name: Assert apply_ao_cr sources apply the CR and wait only for Accepted
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    instance_sources:
+      - "{{ playbook_dir }}/../playbooks/apply_ao_cr.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_instance/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_instance/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_instance/tasks/accepted_assert.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_instance/defaults/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_instance/templates/automationorchestrator.yml.j2"
+  tasks:
+    - name: Load apply_ao_cr source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ instance_sources }}"
+      register: instance_slurps
+
+    - name: Combine apply_ao_cr source text
+      ansible.builtin.set_fact:
+        instance_text: "{{ instance_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Load CR template
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../roles/ao_ea_instance/templates/automationorchestrator.yml.j2"
+      register: cr_template_slurp
+
+    - name: Decode CR template
+      ansible.builtin.set_fact:
+        cr_template_text: "{{ cr_template_slurp.content | b64decode }}"
+
+    - name: Require runbook CR apply, secrets, and produced facts
+      ansible.builtin.assert:
+        that:
+          - "'kind: AutomationOrchestrator' in instance_text"
+          - "'aap.ansible.com/v1alpha1' in instance_text"
+          - "'state: present' in instance_text"
+          - "'cr_applied' in instance_text"
+          - "'cr_accepted' in instance_text"
+          - "'ConfigurationValid' in instance_text"
+          - "'pg_service_host' in instance_text"
+          - "'route_host' in instance_text"
+          - "'orchestrator-pg-credentials' in instance_text"
+          - "'temporal-pg-credentials' in instance_text"
+          - "'ea-health-check' in instance_text"
+        fail_msg: >-
+          apply_ao_cr must apply kind AutomationOrchestrator state=present,
+          secretRef orchestrator-pg-credentials / temporal-pg-credentials,
+          wait for ConfigurationValid, produce cr_applied/cr_accepted, and
+          defer Ready to ea-health-check.
+
+    - name: Require CR template fields
+      ansible.builtin.assert:
+        that:
+          - "'kind: AutomationOrchestrator' in cr_template_text"
+          - "'sslMode: disable' in cr_template_text"
+          - "'backendDatabase:' in cr_template_text"
+          - "'temporalDatabase:' in cr_template_text"
+          - "'secretRef:' in cr_template_text"
+          - "'orchestrator_pg_secret_name' in cr_template_text"
+          - "'temporal_pg_secret_name' in cr_template_text"
+          - "'pg_service_host' in cr_template_text"
+          - "'type: Route' in cr_template_text"
+          - "'route_host' in cr_template_text"
+          - "'app_ns' in cr_template_text"
+          - "'ao_name' in cr_template_text"
+        fail_msg: >-
+          CR template must be AutomationOrchestrator with BYO postgres
+          (sslMode disable, secretRef vars, pg_service_host) and ingress
+          Route + route_host in app_ns.
+
+    - name: Forbid Ready wait, deletes, and shell oc apply
+      ansible.builtin.assert:
+        that:
+          - "'type: Ready' not in instance_text"
+          - "'wait_timeout: 900' not in instance_text"
+          - "'wait_timeout: 1200' not in instance_text"
+          - "'ao_cr_wait_timeout: 90' in instance_text"
+          - "'state: absent' not in instance_text"
+          - "'oc apply' not in instance_text"
+          - "'oc create' not in instance_text"
+          - "'oc delete' not in instance_text"
+          - "'kubernetes.core.k8s:' in instance_text"
+        fail_msg: >-
+          apply_ao_cr must not wait for Ready (health_check), must use a
+          brief 90s timeout, must not delete objects, and must apply via
+          kubernetes.core.k8s not oc.
