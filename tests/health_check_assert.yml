@@ -1,0 +1,47 @@
+---
+# Local health assert coverage without a cluster. Does not call k8s.
+# Positive: ansible-playbook tests/health_check_assert.yml
+#           (Ready, Deployments, Route, HTTPS 200, Secret present)
+# Negative: ansible-playbook tests/health_check_assert.yml -e route_ok=false
+#           ansible-playbook tests/health_check_assert.yml -e cr_ready=false
+#           ansible-playbook tests/health_check_assert.yml -e pods_ready=false
+#           ansible-playbook tests/health_check_assert.yml -e http_probe_ok=false
+#           ansible-playbook tests/health_check_assert.yml -e admin_password_secret_present=false
+
+- name: Exercise health_check assert without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cr_ready: true
+    pods_ready: true
+    route_ok: true
+    http_probe_ok: true
+    route_url: "https://{{ route_host }}"
+    admin_password_secret_present: true
+    admin_password_secret_keys:
+      - password
+    ao_key_deploys_not_ready: []
+  tasks:
+    - name: Run health_check assert
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: health_assert
+
+    - name: Require all health facts true
+      ansible.builtin.assert:
+        that:
+          - cr_ready | bool
+          - pods_ready | bool
+          - route_ok | bool
+          - http_probe_ok | bool
+          - route_url == 'https://' ~ route_host
+          - admin_password_secret_present | bool
+        fail_msg: >-
+          Mocked Ready + Deployments + Route + HTTPS 200 + Secret
+          presence must keep all health facts true.
+        success_msg: >-
+          cr_ready={{ cr_ready }} pods_ready={{ pods_ready }}
+          route_ok={{ route_ok }} http_probe_ok={{ http_probe_ok }}
+          route_url={{ route_url }}
+          admin_password_secret_present={{ admin_password_secret_present }}.

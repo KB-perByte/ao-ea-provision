@@ -1,0 +1,89 @@
+---
+# Static contract: health_check must wait for Ready (~15–20m), assert
+# key Deployments, Route host, HTTPS /health 200, and Secret presence
+# without printing the password value.
+
+- name: Assert health_check sources wait for Ready and never print the admin password
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    health_sources:
+      - "{{ playbook_dir }}/../playbooks/health_check.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/health_assert.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/record_deployments.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/record_route.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/tasks/record_admin_secret.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_health/defaults/main.yml"
+  tasks:
+    - name: Load health_check source files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ health_sources }}"
+      register: health_slurps
+
+    - name: Combine health_check source text
+      ansible.builtin.set_fact:
+        health_text: "{{ health_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Require Ready wait, facts, Route, probe, and Secret presence
+      ansible.builtin.assert:
+        that:
+          - "'cr_ready' in health_text"
+          - "'pods_ready' in health_text"
+          - "'route_ok' in health_text"
+          - "'http_probe_ok' in health_text"
+          - "'route_url' in health_text"
+          - "'ao_ready_condition: Ready' in health_text"
+          - "'ao_ready_wait_timeout: 1200' in health_text"
+          - "'availableReplicas' in health_text"
+          - "'kind: Route' in health_text"
+          - "'route.openshift.io/v1' in health_text"
+          - "'ansible.builtin.uri:' in health_text"
+          - "'health_probe_path: /health' in health_text"
+          - "'status_code: 200' in health_text"
+          - "'initial-admin-password' in health_text"
+          - "'no_log: true' in health_text"
+          - "'value not printed' in health_text"
+          - "'Route down' in health_text"
+          - "'kubernetes.core.k8s_info:' in health_text"
+        fail_msg: >-
+          health_check must wait for Ready (~1200s), produce
+          cr_ready/pods_ready/route_ok/http_probe_ok/route_url, probe
+          HTTPS /health for 200, assert initial-admin-password exists,
+          fail clearly when Route is down, and never print the password.
+
+    - name: Require key Deployment suffixes
+      ansible.builtin.assert:
+        that:
+          - "'backend' in health_text"
+          - "'worker' in health_text"
+          - "'background-worker' in health_text"
+          - "'ui' in health_text"
+          - "'redis' in health_text"
+          - "'temporal' in health_text"
+        fail_msg: >-
+          health_check must assert the six standard AO Deployments
+          (backend, worker, background-worker, ui, redis, temporal).
+
+    - name: Forbid mutations and printing the admin password value
+      ansible.builtin.assert:
+        that:
+          - "'state: present' not in health_text"
+          - "'state: absent' not in health_text"
+          - "'oc apply' not in health_text"
+          - "'oc create' not in health_text"
+          - "'oc delete' not in health_text"
+          - "'oc extract' not in health_text"
+          - "'oc get secret' not in health_text"
+          - "'--to=-' not in health_text"
+          - "'stringData' not in health_text"
+          - "'changeme' not in health_text"
+          - "'password123' not in health_text"
+          - "'group/kubernetes.core.k8s:' in health_text"
+        fail_msg: >-
+          health_check must be read-only (k8s_info + uri GET), must not
+          extract or print the admin password, and must not mutate
+          cluster objects.

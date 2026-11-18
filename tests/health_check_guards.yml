@@ -1,0 +1,36 @@
+---
+# Cluster-free health_check guard coverage. Does not call k8s.
+# Positive: ansible-playbook tests/health_check_guards.yml
+# Negative: ansible-playbook tests/health_check_guards.yml -e app_ns=''
+#           ansible-playbook tests/health_check_guards.yml -e ao_name=''
+#           ansible-playbook tests/health_check_guards.yml -e route_host=''
+
+- name: Exercise health_check guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run health_check guards
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: guards
+
+    - name: Require fail-closed health facts and route_url
+      ansible.builtin.assert:
+        that:
+          - cr_ready is defined
+          - not (cr_ready | bool)
+          - pods_ready is defined
+          - not (pods_ready | bool)
+          - route_ok is defined
+          - not (route_ok | bool)
+          - http_probe_ok is defined
+          - not (http_probe_ok | bool)
+          - route_url == 'https://' ~ route_host
+          - not (admin_password_secret_present | bool)
+        fail_msg: >-
+          health_check guards must leave cr_ready/pods_ready/route_ok/
+          http_probe_ok false until checks succeed, and set route_url
+          from route_host.
+        success_msg: >-
+          Health facts are false until assert; route_url={{ route_url }}.

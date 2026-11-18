@@ -1,0 +1,31 @@
+---
+# Full Ready wait lives here (apply_ao_cr only waits briefly for
+# ConfigurationValid). Operator Ready covers the six standard components.
+# Execution Plane Deployments are optional and are not required here.
+
+k8s_validate_certs: true
+
+ao_ready_condition: Ready
+ao_ready_wait_timeout: 1200
+ao_ready_wait_delay: 10
+
+# Names match operator Deployments: {ao_name}-{suffix}.
+ao_key_deploy_suffixes:
+  - backend
+  - worker
+  - background-worker
+  - ui
+  - redis
+  - temporal
+
+ao_admin_password_secret_suffix: initial-admin-password
+ao_admin_password_secret_name: "{{ ao_name }}-{{ ao_admin_password_secret_suffix }}"
+ao_admin_password_secret_key: password
+
+# Public Route health is nginx /health (200). Backend /healthz/ready is
+# not exposed on the Route (nginx only proxies /api, /api_docs, /docs, /ws).
+health_probe_path: /health
+health_probe_retries: 24
+health_probe_delay: 10
+health_probe_timeout: 15
+health_probe_validate_certs: true

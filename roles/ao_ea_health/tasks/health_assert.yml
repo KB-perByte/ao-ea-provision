@@ -1,0 +1,77 @@
+---
+# Assert health facts. Callers set cr_ready, pods_ready, route_ok,
+# http_probe_ok, route_url, admin_password_secret_present (from k8s_info
+# / uri or a local mock). Never prints the admin password value.
+
+- name: Require AutomationOrchestrator Ready
+  ansible.builtin.assert:
+    that:
+      - cr_ready | bool
+    fail_msg: >-
+      AutomationOrchestrator {{ ao_name }} in {{ app_ns }} is not
+      {{ ao_ready_condition }}=True after waiting
+      {{ ao_ready_wait_timeout }}s. Check operator events, PostgreSQL in
+      {{ db_ns | default('db_ns') }}, and secretRef Secrets in app_ns.
+    success_msg: >-
+      AutomationOrchestrator {{ ao_name }} is {{ ao_ready_condition }}=True
+      in {{ app_ns }}.
+
+- name: Require key Deployments have availableReplicas
+  ansible.builtin.assert:
+    that:
+      - pods_ready | bool
+    fail_msg: >-
+      Key Deployments in {{ app_ns }} are not Ready
+      (availableReplicas >= 1). Not ready:
+      {{ ao_key_deploys_not_ready | default([]) | join(', ') }}.
+      Expected suffixes: {{ ao_key_deploy_suffixes | join(', ') }}.
+    success_msg: >-
+      Key Deployments in {{ app_ns }} have availableReplicas >= 1
+      ({{ ao_key_deploy_suffixes | join(', ') }}).
+
+- name: Require Route for host
+  ansible.builtin.assert:
+    that:
+      - route_ok | bool
+    fail_msg: >-
+      Route down: no Route for host {{ route_host }} in {{ app_ns }}.
+      HTTPS probe skipped. Expected route_url={{ route_url }}.
+    success_msg: >-
+      Route for host {{ route_host }} exists in {{ app_ns }}
+      ({{ route_url }}).
+
+- name: Require HTTPS health probe 200
+  ansible.builtin.assert:
+    that:
+      - http_probe_ok | bool
+    fail_msg: >-
+      HTTPS GET {{ route_url }}{{ health_probe_path }} did not return 200
+      (Route may be down or not admitted). Accept 200 only.
+    success_msg: >-
+      HTTPS GET {{ route_url }}{{ health_probe_path }} returned 200.
+
+- name: Require initial-admin-password Secret exists
+  ansible.builtin.assert:
+    that:
+      - admin_password_secret_present | bool
+      - ao_admin_password_secret_key in (admin_password_secret_keys | default([]))
+    fail_msg: >-
+      Secret {{ ao_admin_password_secret_name }} was not found in
+      {{ app_ns }} (or is missing key {{ ao_admin_password_secret_key }}).
+      Presence only; the password value is not printed.
+    success_msg: >-
+      Secret {{ ao_admin_password_secret_name }} exists in {{ app_ns }}
+      (key {{ ao_admin_password_secret_key }} present; value not printed).
+
+- name: Show health_check result
+  ansible.builtin.debug:
+    msg:
+      cr_ready: "{{ cr_ready }}"
+      pods_ready: "{{ pods_ready }}"
+      route_ok: "{{ route_ok }}"
+      http_probe_ok: "{{ http_probe_ok }}"
+      route_url: "{{ route_url }}"
+      admin_password_secret_present: "{{ admin_password_secret_present }}"
+      ao_name: "{{ ao_name }}"
+      app_ns: "{{ app_ns }}"
+      route_host: "{{ route_host }}"

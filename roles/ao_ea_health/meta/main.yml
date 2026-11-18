@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  role_name: ao_ea_health
+  description: >-
+    Wait for AutomationOrchestrator Ready; assert key Deployments, Route,
+    HTTPS /health, and initial-admin-password Secret presence (never print
+    the value)
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

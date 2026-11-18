@@ -1,0 +1,17 @@
+---
+# Record whether a Route for route_host exists. Callers set
+# ao_route_query (k8s_info or a local mock). Does not call k8s.
+
+- name: Reset Route match
+  ansible.builtin.set_fact:
+    ao_matching_routes: []
+    route_ok: false
+
+- name: Record Route matching route_host
+  ansible.builtin.set_fact:
+    ao_matching_routes: "{{ (ao_route_query.resources | default([])) | selectattr('spec.host', 'defined') | selectattr('spec.host', 'equalto', route_host) | list }}"
+    route_url: "https://{{ route_host }}"
+
+- name: Record route_ok
+  ansible.builtin.set_fact:
+    route_ok: "{{ (ao_matching_routes | length) > 0 }}"

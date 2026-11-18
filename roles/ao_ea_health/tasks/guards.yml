@@ -1,0 +1,27 @@
+---
+# Cluster-free: require identifiers. Initializes health facts fail-closed.
+# Does not call k8s.
+
+- name: Require health_check identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - route_host is defined and (route_host | length) > 0
+    fail_msg: >-
+      health_check requires app_ns, ao_name, and route_host to be defined
+      and non-empty.
+
+- name: Initialize health_check facts fail-closed
+  ansible.builtin.set_fact:
+    cr_ready: false
+    pods_ready: false
+    route_ok: false
+    http_probe_ok: false
+    route_url: "https://{{ route_host }}"
+    cr_exists: false
+    ao_cr_conditions: []
+    ao_key_deploys_ready: []
+    ao_key_deploys_not_ready: "{{ ao_key_deploy_suffixes }}"
+    admin_password_secret_present: false
+    admin_password_secret_keys: []

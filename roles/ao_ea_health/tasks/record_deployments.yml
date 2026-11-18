@@ -1,0 +1,22 @@
+---
+# Record availableReplicas from a k8s_info loop (or a local mock of
+# ao_deploy_query.results). Does not call k8s.
+
+- name: Reset key Deployment readiness
+  ansible.builtin.set_fact:
+    ao_key_deploys_ready: []
+
+- name: Record key Deployments with availableReplicas
+  ansible.builtin.set_fact:
+    ao_key_deploys_ready: "{{ ao_key_deploys_ready | default([]) + [item.item] }}"
+  when:
+    - (item.resources | default([])) | length > 0
+    - (item.resources[0].status.availableReplicas | default(0) | int) >= 1
+  loop: "{{ ao_deploy_query.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('unknown') }}"
+
+- name: Record pods_ready
+  ansible.builtin.set_fact:
+    pods_ready: "{{ (ao_key_deploys_ready | length) == (ao_key_deploy_suffixes | length) }}"
+    ao_key_deploys_not_ready: "{{ ao_key_deploy_suffixes | difference(ao_key_deploys_ready) }}"

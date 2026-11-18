@@ -1,0 +1,93 @@
+---
+# Wait for Ready, then assert Deployments, Route, HTTPS /health, and
+# initial-admin-password Secret presence. Read-only. Never print the
+# password value.
+
+- name: Run health_check guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Query AO health on the cluster
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Wait for AutomationOrchestrator Ready
+      kubernetes.core.k8s_info:
+        api_version: aap.ansible.com/v1alpha1
+        kind: AutomationOrchestrator
+        name: "{{ ao_name }}"
+        namespace: "{{ app_ns }}"
+        wait: true
+        wait_sleep: "{{ ao_ready_wait_delay | int }}"
+        wait_timeout: "{{ ao_ready_wait_timeout | int }}"
+        wait_condition:
+          type: "{{ ao_ready_condition }}"
+          status: "True"
+      register: ao_cr_query
+
+    - name: Record CR existence and conditions
+      ansible.builtin.set_fact:
+        cr_exists: "{{ (ao_cr_query.resources | default([])) | length > 0 }}"
+        ao_cr_conditions: "{{ (ao_cr_query.resources[0].status.conditions | default([])) if ((ao_cr_query.resources | default([])) | length > 0) else [] }}"
+
+    - name: Record cr_ready
+      ansible.builtin.set_fact:
+        cr_ready: "{{ (ao_cr_conditions | selectattr('type', 'equalto', ao_ready_condition) | map(attribute='status') | list | first | default('')) == 'True' }}"
+
+    - name: Get key AO Deployments
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ ao_name }}-{{ item }}"
+        namespace: "{{ app_ns }}"
+      loop: "{{ ao_key_deploy_suffixes }}"
+      register: ao_deploy_query
+
+    - name: Record key Deployment readiness
+      ansible.builtin.include_tasks: record_deployments.yml
+
+    - name: List Routes in app_ns
+      kubernetes.core.k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ app_ns }}"
+      register: ao_route_query
+
+    - name: Record Route for host
+      ansible.builtin.include_tasks: record_route.yml
+
+    - name: HTTPS GET UI health through the Route
+      ansible.builtin.uri:
+        url: "{{ route_url }}{{ health_probe_path }}"
+        method: GET
+        status_code: 200
+        validate_certs: "{{ health_probe_validate_certs | bool }}"
+        timeout: "{{ health_probe_timeout | int }}"
+      register: health_probe
+      retries: "{{ health_probe_retries | int }}"
+      delay: "{{ health_probe_delay | int }}"
+      until: (health_probe.status | default(0) | int) == 200
+      when: route_ok | bool
+
+    - name: Record HTTP probe
+      ansible.builtin.set_fact:
+        http_probe_ok: "{{ (health_probe.status | default(0) | int) == 200 }}"
+      when: route_ok | bool
+
+    - name: Confirm initial-admin-password Secret exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ ao_admin_password_secret_name }}"
+        namespace: "{{ app_ns }}"
+      register: admin_password_query
+      no_log: true
+
+    - name: Record admin password Secret presence
+      ansible.builtin.include_tasks: record_admin_secret.yml
+
+- name: Assert health_check facts
+  ansible.builtin.include_tasks: health_assert.yml

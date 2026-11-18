@@ -1,0 +1,157 @@
+---
+# Local record coverage without a cluster. Does not call k8s.
+# Positive: ansible-playbook tests/health_check_record.yml
+
+- name: Record Ready Deployments and matching Route
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ao_key_deploys_ready: []
+    ao_deploy_query:
+      results:
+        - item: backend
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: worker
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: background-worker
+          resources:
+            - status:
+                availableReplicas: 2
+        - item: ui
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: redis
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: temporal
+          resources:
+            - status:
+                availableReplicas: 1
+    ao_route_query:
+      resources:
+        - metadata:
+            name: "{{ ao_name }}"
+          spec:
+            host: "{{ route_host }}"
+    admin_password_query:
+      resources:
+        - metadata:
+            name: "{{ ao_name }}-initial-admin-password"
+          data:
+            password: ""
+  tasks:
+    - name: Record deployments from mock
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: record_deployments
+
+    - name: Record Route from mock
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: record_route
+
+    - name: Record admin Secret from mock keys
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: record_admin_secret
+
+    - name: Require pods_ready, route_ok, and Secret presence without printing value
+      ansible.builtin.assert:
+        that:
+          - pods_ready | bool
+          - route_ok | bool
+          - route_url == 'https://' ~ route_host
+          - admin_password_secret_present | bool
+          - "'password' in admin_password_secret_keys"
+          - ao_key_deploys_not_ready | length == 0
+        fail_msg: >-
+          Mocked availableReplicas >= 1, matching Route host, and Secret
+          keys must set pods_ready, route_ok, and
+          admin_password_secret_present.
+        success_msg: >-
+          pods_ready={{ pods_ready }} route_ok={{ route_ok }}
+          route_url={{ route_url }}
+          admin_password_secret_present={{ admin_password_secret_present }}.
+
+- name: Treat missing Route host as Route down
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ao_route_query:
+      resources:
+        - metadata:
+            name: other-route
+          spec:
+            host: other.example.com
+  tasks:
+    - name: Record Route from mock without matching host
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: record_route
+
+    - name: Require route_ok false when host is missing
+      ansible.builtin.assert:
+        that:
+          - not (route_ok | bool)
+          - route_url == 'https://' ~ route_host
+        fail_msg: >-
+          A Route list without spec.host={{ route_host }} must leave
+          route_ok false (clear Route down).
+        success_msg: >-
+          route_ok=false when host {{ route_host }} is missing.
+
+- name: Treat zero availableReplicas as not ready
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ao_key_deploys_ready: []
+    ao_deploy_query:
+      results:
+        - item: backend
+          resources:
+            - status:
+                availableReplicas: 0
+        - item: worker
+          resources: []
+        - item: background-worker
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: ui
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: redis
+          resources:
+            - status:
+                availableReplicas: 1
+        - item: temporal
+          resources:
+            - status:
+                availableReplicas: 1
+  tasks:
+    - name: Record deployments from mock with missing replicas
+      ansible.builtin.include_role:
+        name: ao_ea_health
+        tasks_from: record_deployments
+
+    - name: Require pods_ready false when a key Deployment is down
+      ansible.builtin.assert:
+        that:
+          - not (pods_ready | bool)
+          - "'backend' in ao_key_deploys_not_ready"
+          - "'worker' in ao_key_deploys_not_ready"
+        fail_msg: >-
+          availableReplicas < 1 or missing Deployment must leave
+          pods_ready false.
+        success_msg: >-
+          pods_ready=false; not ready={{ ao_key_deploys_not_ready | join(',') }}.

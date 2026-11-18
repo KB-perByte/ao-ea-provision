@@ -244,6 +244,51 @@ oc get configmap my-orchestrator-admin-settings -n syntarogation-ao-nov \
 # Re-run JT: success / no-op when the worker env is already true
 ```
 
+## Health check (`ea-health-check`)
+
+Playbook: `playbooks/health_check.yml`.
+
+Waits for `AutomationOrchestrator` `ao_name` in `app_ns` to reach
+`Ready=True` (~15–20 minutes; `wait_timeout` 1200s). Then asserts:
+
+1. Key Deployments have `availableReplicas >= 1`: `{ao_name}-backend`,
+   `-worker`, `-background-worker`, `-ui`, `-redis`, `-temporal`.
+2. A Route exists whose `spec.host` is `route_host`.
+3. HTTPS GET `https://{route_host}/health` returns 200 (nginx UI health
+   on the Route, with retries). Backend `/healthz/ready` is not on the
+   Route (nginx only proxies `/api`).
+4. Secret `{ao_name}-initial-admin-password` exists in `app_ns` with
+   key `password`. **Presence only — the value is never printed.**
+
+Produces facts `cr_ready`, `pods_ready`, `route_ok`, `http_probe_ok`,
+`route_url`. Fail-closed until each check succeeds. Missing Route fails
+clearly (`Route down`).
+
+AAP Job Template creation is human-owned. This playbook is read-only.
+
+Cluster verification (human, PDE AO-05):
+
+```bash
+# After JT ea-health-check
+oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov
+# expected: READY True
+
+oc get deploy -n syntarogation-ao-nov
+# expected: my-orchestrator-{backend,worker,background-worker,ui,redis,temporal} available
+
+oc get route -n syntarogation-ao-nov
+# expected: host syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+
+curl -sS -o /dev/null -w "%{http_code}\n" \
+  https://syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com/health
+# expected: 200
+
+oc get secret my-orchestrator-initial-admin-password \
+  -n syntarogation-ao-nov \
+  -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
+# expected: password (key only; do not extract the value)
+```
+
 ## Collections
 
 `requirements.yml` lists `kubernetes.core` (>=5.0.0) and `redhat.openshift`

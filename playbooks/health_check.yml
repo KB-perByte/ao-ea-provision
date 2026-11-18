@@ -1,0 +1,14 @@
+---
+# JT ea-health-check.
+# Wait for AutomationOrchestrator Ready (~15–20m), then assert key
+# Deployments, Route, HTTPS /health, and initial-admin-password Secret
+# presence. Never print the password value.
+
+- name: Health-check early-access Automation Orchestrator
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA health check
+      ansible.builtin.include_role:
+        name: ao_ea_health
