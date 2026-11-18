@@ -1,0 +1,109 @@
+---
+# Read-only cluster checks. No mutations. kubernetes.core.k8s_info covers
+# CatalogSource and PackageManifest so syntax-check works without
+# redhat.openshift (Hub-only). Auth: host=cluster_api; token via AAP
+# K8S_AUTH_* or extra-vars k8s_api_key / k8s_kubeconfig.
+
+- name: Require preflight identifiers
+  ansible.builtin.assert:
+    that:
+      - cluster_api is defined and (cluster_api | length) > 0
+      - ao_channel is defined and (ao_channel | length) > 0
+      - catalog_source is defined and (catalog_source | length) > 0
+      - catalog_ns is defined and (catalog_ns | length) > 0
+      - ao_operator_package is defined and (ao_operator_package | length) > 0
+    fail_msg: >-
+      Preflight requires cluster_api, ao_channel, catalog_source, catalog_ns,
+      and ao_operator_package to be defined and non-empty.
+
+- name: Initialize preflight facts
+  ansible.builtin.set_fact:
+    preflight_ok: false
+    available_channels: []
+
+- name: Query the target cluster
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Confirm API access by listing nodes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: preflight_nodes
+
+    - name: Require at least one node from the API
+      ansible.builtin.assert:
+        that:
+          - preflight_nodes.resources | default([]) | length > 0
+        fail_msg: >-
+          Cannot confirm API access to {{ cluster_api }}: listing nodes
+          returned no resources. Check the Kubernetes credential and
+          cluster_api.
+        success_msg: "API access confirmed against {{ cluster_api }}."
+
+    - name: Get the operator CatalogSource
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: CatalogSource
+        name: "{{ catalog_source }}"
+        namespace: "{{ catalog_ns }}"
+      register: preflight_catalog
+
+    - name: Require the CatalogSource to exist
+      ansible.builtin.assert:
+        that:
+          - preflight_catalog.api_found | default(true)
+          - preflight_catalog.resources | default([]) | length > 0
+        fail_msg: >-
+          CatalogSource {{ catalog_source }} was not found in namespace
+          {{ catalog_ns }}.
+        success_msg: >-
+          CatalogSource {{ catalog_source }} is present in {{ catalog_ns }}.
+
+    - name: Require the CatalogSource connection to be READY when reported
+      ansible.builtin.assert:
+        that:
+          - (preflight_catalog.resources[0].status.connectionState.lastObservedState | default('READY')) == 'READY'
+        fail_msg: >-
+          CatalogSource {{ catalog_source }} in {{ catalog_ns }} is not READY
+          ({{ preflight_catalog.resources[0].status.connectionState.lastObservedState | default('unknown') }}).
+
+    - name: Get the AO operator PackageManifest
+      kubernetes.core.k8s_info:
+        api_version: packages.operators.coreos.com/v1
+        kind: PackageManifest
+        name: "{{ ao_operator_package }}"
+        namespace: "{{ catalog_ns }}"
+        label_selectors:
+          - "catalog={{ catalog_source }}"
+      register: preflight_packagemanifest
+
+    - name: Require the operator PackageManifest
+      ansible.builtin.assert:
+        that:
+          - preflight_packagemanifest.api_found | default(true)
+          - preflight_packagemanifest.resources | default([]) | length > 0
+        fail_msg: >-
+          PackageManifest {{ ao_operator_package }} was not found in namespace
+          {{ catalog_ns }} for catalog {{ catalog_source }}.
+        success_msg: >-
+          PackageManifest {{ ao_operator_package }} is present for catalog
+          {{ catalog_source }}.
+
+    - name: Collect available operator channels
+      ansible.builtin.set_fact:
+        available_channels: "{{ available_channels + (item.status.channels | default([]) | map(attribute='name') | list) }}"
+      loop: "{{ preflight_packagemanifest.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name | default(ao_operator_package) }}"
+
+    - name: Deduplicate available channels
+      ansible.builtin.set_fact:
+        available_channels: "{{ available_channels | unique | list }}"
+
+- name: Assert requested channel and mark preflight ok
+  ansible.builtin.include_tasks: preflight_assert.yml

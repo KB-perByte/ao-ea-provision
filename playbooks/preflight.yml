@@ -1,0 +1,10 @@
+---
+- name: Preflight early-access AO provision
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA preflight
+      ansible.builtin.include_role:
+        name: ao_ea_common
+        tasks_from: preflight

@@ -1,0 +1,32 @@
+---
+# Channel membership only. Callers must set available_channels (from
+# PackageManifest or a local mock). Fails before any mutation because
+# preflight never mutates.
+
+- name: Fail if ao_channel is not in the PackageManifest channels
+  ansible.builtin.assert:
+    that:
+      - available_channels is defined
+      - available_channels is sequence
+      - available_channels is not string
+      - available_channels | length > 0
+      - ao_channel in available_channels
+    fail_msg: >-
+      ao_channel {{ ao_channel }} is not available on PackageManifest
+      {{ ao_operator_package }} (catalog {{ catalog_source }}).
+      Available channels: {{ available_channels }}.
+      Set ao_channel to one of those values; default is early-access.
+    success_msg: >-
+      ao_channel {{ ao_channel }} is present in {{ available_channels }}.
+
+- name: Mark preflight successful
+  ansible.builtin.set_fact:
+    preflight_ok: true
+
+- name: Show preflight result
+  ansible.builtin.debug:
+    msg:
+      preflight_ok: "{{ preflight_ok }}"
+      ao_channel: "{{ ao_channel }}"
+      available_channels: "{{ available_channels }}"
+      catalog_source: "{{ catalog_source }}"

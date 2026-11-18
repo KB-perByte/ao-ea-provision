@@ -1,0 +1,18 @@
+---
+# Local channel-assert coverage without a cluster. Does not call k8s.
+# Positive: ansible-playbook tests/preflight_channel.yml
+# Negative: ansible-playbook tests/preflight_channel.yml -e ao_channel=does-not-exist
+
+- name: Exercise preflight channel assert without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    available_channels:
+      - early-access
+      - stable
+  tasks:
+    - name: Run channel membership assert
+      ansible.builtin.include_role:
+        name: ao_ea_common
+        tasks_from: preflight_assert
