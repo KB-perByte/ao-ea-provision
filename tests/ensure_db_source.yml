@@ -52,11 +52,14 @@
           - "'vault_pg_admin_password' in postgres_text"
           - "'vault_pg_orchestrator_password' in postgres_text"
           - "'vault_pg_temporal_password' in postgres_text"
+          - "'vault_pg_execution_plane_password' in postgres_text"
+          - "'pg_execution_plane' in postgres_text"
+          - "'script_nodes_enabled' in postgres_text"
         fail_msg: >-
           ensure_db must use quay SCLORG postgresql-15, max_connections,
           volumeClaimTemplates (gp3-csi/20Gi), mount /var/lib/pgsql/data,
-          consume vault_pg_* password var names, and produce pg_host,
-          pvc_bound, and db_ready.
+          consume vault_pg_* password var names (including execution plane),
+          and produce pg_host, pvc_bound, and db_ready.
 
     - name: Split pgcrypto script at orchestrator psql
       ansible.builtin.set_fact:
@@ -74,14 +77,15 @@
           CREATE EXTENSION pgcrypto must run as user orchestrator. Drop only
           when the existing owner is not orchestrator.
 
-    - name: Forbid deleting the DB PVC or any ensure_db object
+    - name: Forbid deleting the DB PVC (pod recreate is allowed)
       ansible.builtin.assert:
         that:
-          - "'state: absent' not in postgres_text"
           - "'oc delete' not in postgres_text"
           - "'k8s_info' in postgres_text"
           - "'volumeClaimTemplates' in postgres_text"
+          - "'pg_pvc_name' in postgres_text"
+          - "'Never delete PVC' in postgres_text or 'will not recreate' in postgres_text or 'PVCs from volumeClaimTemplates are NOT deleted' in postgres_text"
         fail_msg: >-
-          ensure_db must never delete the PVC (no state=absent, no oc delete).
-          Look the PVC up with k8s_info and create it only via StatefulSet
-          volumeClaimTemplates so a Bound volume is reused.
+          ensure_db must never delete the PVC. Pod recreate (state=absent
+          on the ordinal pod only) is allowed so the STS template applies;
+          PVC data-ao-postgres-0 must stay Bound via volumeClaimTemplates.

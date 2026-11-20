@@ -3,6 +3,7 @@
 collections/
 .galaxy_install_info
 .ansible/
+ao-ea-provision-ee/context/
 
 # Secrets — never commit credentials, tokens, or vault passwords
 *.vault
@@ -10,11 +11,17 @@ collections/
 .vault_password
 vault_password
 secrets/
+**/local.extra_vars.yml
+**/extra_vars.local.yml
+*.extra_vars.local.yml
 *.key
 *.pem
 *.p12
 *.kubeconfig
 kubeconfig
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -30,3 +37,4 @@ venv/
 # OS / editor
 .DS_Store
 *.swp
+ansible-navigator.log

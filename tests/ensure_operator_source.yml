@@ -1,8 +1,10 @@
 ---
-# Static contract: ensure_operator must assert the existing Subscription
-# and must never create or patch one.
+# Static contract: ensure_operator may create Namespace/OperatorGroup/
+# Subscription when none exist; may reconcile channel on the existing
+# Subscription; must never allow a second Subscription; must wait
+# AtLatestKnown + CSV Succeeded.
 
-- name: Assert ensure_operator sources only assert the existing Subscription
+- name: Assert ensure_operator sources support clean install and channel reconcile
   hosts: localhost
   connection: local
   gather_facts: false
@@ -12,7 +14,13 @@
       - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/main.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/guards.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/operator_assert.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/create_operator.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/reconcile_channel.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/tasks/wait_operator_healthy.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_operator/defaults/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/templates/subscription.yml.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/templates/operator_group.yml.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_operator/templates/operator_namespace.yml.j2"
   tasks:
     - name: Load operator source files
       ansible.builtin.slurp:
@@ -24,39 +32,36 @@
       ansible.builtin.set_fact:
         operator_text: "{{ operator_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
 
-    - name: Require Subscription asserts and produced facts
+    - name: Require create-on-clean, channel reconcile, and healthy wait
       ansible.builtin.assert:
         that:
           - "'operator_ns' in operator_text"
           - "'ao_channel' in operator_text"
           - "'operator_subscription_name' in operator_text"
           - "'kind: Subscription' in operator_text"
-          - "'kind: ClusterServiceVersion' in operator_text"
+          - "'kind: OperatorGroup' in operator_text"
+          - "'create_operator.yml' in operator_text"
+          - "'reconcile_channel.yml' in operator_text"
+          - "'wait_operator_healthy.yml' in operator_text"
+          - "'operator_manage_channel' in operator_text"
+          - "'AtLatestKnown' in operator_text"
           - "'installed_csv' in operator_text"
           - "'channel_ok' in operator_text"
-          - "'k8s_info' in operator_text"
-          - "'Do not create or patch' in operator_text"
+          - "'Never create a second' in operator_text"
           - "'Succeeded' in operator_text"
+          - "'installPlanApproval' in operator_text"
         fail_msg: >-
-          ensure_operator must look up Subscription and ClusterServiceVersion
-          with k8s_info, assert channel == ao_channel and CSV Succeeded,
-          produce installed_csv/channel_ok, and tell the operator not to
-          create or patch the Subscription.
+          ensure_operator must create Operator resources when count is 0,
+          reconcile channel when operator_manage_channel=true, wait for
+          AtLatestKnown + CSV Succeeded, and refuse duplicate Subscriptions.
 
-    - name: Forbid creating or patching a Subscription
+    - name: Forbid deleting Subscriptions or creating duplicates via oc
       ansible.builtin.assert:
         that:
-          - "'group/kubernetes.core.k8s:' in operator_text"
-          - (operator_text.split('kubernetes.core.k8s:') | length) == 2
-          - "'kubernetes.core.k8s_info:' in operator_text"
-          - "'state: present' not in operator_text"
-          - "'state: absent' not in operator_text"
-          - "'oc apply' not in operator_text"
-          - "'oc create' not in operator_text"
-          - "'oc patch' not in operator_text"
           - "'oc delete' not in operator_text"
+          - "'state: absent' not in operator_text"
+          - "'oc patch' not in operator_text"
         fail_msg: >-
-          ensure_operator must not create, patch, or delete Subscription
-          (k8s_info only; module_defaults group/kubernetes.core.k8s is
-          allowed; no state present/absent, no oc apply/create/patch/
-          delete). Fail and instruct the operator instead.
+          ensure_operator must not delete Subscriptions or use oc patch;
+          reconcile via kubernetes.core.k8s state=present on the Subscription
+          template only.

@@ -9,11 +9,22 @@ pg_storage_class: gp3-csi
 pg_max_connections: 200
 pg_port: 5432
 pg_secret_name: ao-postgres-credentials
+pg_orchestrator_user: orchestrator
+pg_orchestrator_database: orchestrator
+# Execution Plane (script nodes). Created when script_nodes_enabled=true.
+pg_execution_plane_user: execution_plane
+pg_execution_plane_database: execution_plane
+script_nodes_enabled: true
 pg_wait_timeout: 300
 pg_wait_delay: 5
+pg_container_name: postgres
+pg_init_retries: 5
+pg_init_delay: 3
 k8s_validate_certs: true
 
-# Injected from AAP extra_vars or Controller credentials.
-pg_admin_password: "{{ vault_pg_admin_password | default('') }}"
-pg_orchestrator_password: "{{ vault_pg_orchestrator_password | default('') }}"
-pg_temporal_password: "{{ vault_pg_temporal_password | default('') }}"
+# Passwords are NOT defaulted here. Pass via:
+#   -e @secrets/local.extra_vars.yml
+#   or AAP credentials / -e pg_*_password=… / -e vault_pg_*_password=…
+# Guards resolve pg_* from vault_pg_* when needed.
+# EP also needs pg_execution_plane_password / vault_pg_execution_plane_password
+# when script_nodes_enabled=true.

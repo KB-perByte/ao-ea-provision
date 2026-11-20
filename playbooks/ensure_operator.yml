@@ -1,10 +1,11 @@
 ---
 # JT ea-ensure-operator.
-# Assert the existing AO Operator Subscription in operator_ns:
-# spec.channel == ao_channel (default early-access), CSV Succeeded,
-# exactly one AO Subscription. Do not create or patch Subscription.
+# Ensure AO Operator Subscription in operator_ns for ao_channel:
+# - Clean cluster: create Namespace + OperatorGroup + Subscription.
+# - Existing: reconcile channel to ao_channel (operator_manage_channel),
+#   wait AtLatestKnown + CSV Succeeded. Never create a second Subscription.
 
-- name: Assert early-access AO operator Subscription
+- name: Ensure AO operator Subscription for ao_channel
   hosts: localhost
   connection: local
   gather_facts: false

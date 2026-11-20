@@ -1,0 +1,31 @@
+---
+# Align an existing Subscription to ao_channel. Never create a second
+# Subscription. Patches channel (+ installPlanApproval) only when needed.
+
+- name: Skip channel reconcile when management is disabled
+  ansible.builtin.debug:
+    msg: >-
+      operator_manage_channel=false; leaving Subscription channel
+      {{ subscription_channel }} unchanged (ao_channel={{ ao_channel }}).
+  when: not (operator_manage_channel | bool)
+
+- name: Reconcile Subscription channel and installPlanApproval to ao_channel
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'subscription.yml.j2') }}"
+  when:
+    - operator_manage_channel | bool
+    - subscription_exists | bool
+    - >-
+        (subscription_channel | default('')) != ao_channel
+        or (subscription_approval | default('')) != operator_install_plan_approval
+
+- name: Mark that this run reconciled the Subscription channel
+  ansible.builtin.set_fact:
+    operator_channel_reconciled: true
+  when:
+    - operator_manage_channel | bool
+    - subscription_exists | bool
+    - >-
+        (subscription_channel | default('')) != ao_channel
+        or (subscription_approval | default('')) != operator_install_plan_approval

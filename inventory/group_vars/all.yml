@@ -1,20 +1,24 @@
 ---
-# PDE AO-05 defaults for weekly early-access AO provision.
+# OpenShift instance defaults for weekly early-access AO provision.
 # Keep cluster/namespace values here so they can be parameterized later.
 # Never store secrets (OCP tokens, PG passwords, admin passwords) in this repo.
 
-cluster_api: "https://api.pde-ao-05.rnil.p3.openshiftapps.com:443"
-app_ns: syntarogation-ao-nov
-db_ns: syntarogation-ao-nov-db
+cluster_api: ""
+# App project (weekly teardown/recreate of the AO CR). DB project stays separate.
+app_ns: ""
+db_ns: ""
 ao_name: my-orchestrator
-pg_service_host: ao-postgres.syntarogation-ao-nov-db.svc
+pg_service_host: ao-postgres.syntarogation-ao-db.svc
 pg_service_name: ao-postgres
-route_host: syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+route_host: ""
 ao_channel: early-access
 catalog_source: redhat-operators
 catalog_ns: openshift-marketplace
 operator_ns: automation-orchestrator-operator-system
 operator_subscription_name: automation-orchestrator-operator
+# Create Operator Namespace + OperatorGroup + Subscription when none exist
+# (clean cluster). Never create a second Subscription; never patch channel.
+operator_install_plan_approval: Automatic
 script_nodes_enabled: true
 pg_pvc_name: data-ao-postgres-0
 pg_image: quay.io/sclorg/postgresql-15-c9s:latest
@@ -28,3 +32,7 @@ pg_orchestrator_user: orchestrator
 pg_orchestrator_database: orchestrator
 pg_temporal_user: temporal
 pg_temporal_database: temporal
+# Execution Plane (script nodes): ensure_db creates role/DB; ensure_secrets
+# applies Secret {ao_name}-execution-plane-database; postconfig enables EP.
+pg_execution_plane_user: execution_plane
+pg_execution_plane_database: execution_plane

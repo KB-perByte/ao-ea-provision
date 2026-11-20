@@ -1,7 +1,7 @@
 # AAP setup (human-owned)
 
 This repository is the AAP Project content: playbooks, roles, and inventory
-vars for weekly early-access Automation Orchestrator provision on PDE AO-05.
+vars for weekly early-access Automation Orchestrator provision on OpenShift instance.
 
 AAP Controller bootstrap, the Execution Environment image, credential
 objects, Job Template registration, and the stable AO workflow are
@@ -16,7 +16,7 @@ Stable AO workflow node order lives in [ao-workflow.md](ao-workflow.md).
 ## Job Templates
 
 Create all eight in the same Organization, Project (`ao-ea-provision`),
-Inventory (`pde-ao-05` / localhost), Execution Environment, and
+Inventory (`OpenShift-instance` / localhost), Execution Environment, and
 credential set. Limit to the Project's SCM playbook paths below.
 
 | JT name | Playbook |
@@ -43,10 +43,11 @@ credentials, not Git or extra-vars files in this repo.
 
 | Credential | Type | Injects | Used by |
 |---|---|---|---|
-| PDE AO-05 OpenShift | Kubernetes / OpenShift (API URL + token) | `K8S_AUTH_*` (or extra-vars `k8s_api_key` / `k8s_kubeconfig`) | all eight JTs (`host` is always `cluster_api`) |
+| OpenShift instance OpenShift | Kubernetes / OpenShift (API URL + token) | `K8S_AUTH_*` (or extra-vars `k8s_api_key` / `k8s_kubeconfig`) | all eight JTs (`host` is always `cluster_api`) |
 | PostgreSQL admin | Custom / Vault | `pg_admin_password` or `vault_pg_admin_password` | `ea-ensure-db` |
 | PostgreSQL orchestrator | Custom / Vault | `pg_orchestrator_password` or `vault_pg_orchestrator_password` | `ea-ensure-db`, `ea-ensure-secrets` |
 | PostgreSQL temporal | Custom / Vault | `pg_temporal_password` or `vault_pg_temporal_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+| PostgreSQL execution plane | Custom / Vault | `pg_execution_plane_password` or `vault_pg_execution_plane_password` | `ea-ensure-db`, `ea-ensure-secrets` (when `script_nodes_enabled=true`) |
 
 The OpenShift credential's host/API URL must match `cluster_api`. The
 token must be able to list Nodes and mutate `app_ns` / `db_ns` as the
@@ -58,20 +59,20 @@ reuse`.
 
 ## extra_vars
 
-Non-secret PDE AO-05 defaults live in `inventory/group_vars/all.yml`.
+Non-secret OpenShift instance defaults live in `inventory/group_vars/all.yml`.
 Pass the same map into every JT (or rely on the Project inventory).
 Override per launch only when needed.
 
 | extra-var | Default | Notes |
 |---|---|---|
-| `cluster_api` | `https://api.pde-ao-05.rnil.p3.openshiftapps.com:443` | PDE AO-05 API |
-| `app_ns` | `syntarogation-ao-nov` | App project (kept; CR is deleted) |
-| `db_ns` | `syntarogation-ao-nov-db` | Persistent DB project |
+| `cluster_api` | `https://api.OpenShift-instance.rnil.p3.openshiftapps.com:443` | OpenShift instance API |
+| `app_ns` | `syntarogation-ao` | App project (CR torn down weekly; ns recreated as needed) |
+| `db_ns` | `syntarogation-ao-db` | Persistent DB project |
 | `ao_name` | `my-orchestrator` | `AutomationOrchestrator` CR name |
-| `pg_service_host` | `ao-postgres.syntarogation-ao-nov-db.svc` | BYO PG DNS |
+| `pg_service_host` | `ao-postgres.syntarogation-ao-db.svc` | BYO PG DNS |
 | `pg_service_name` | `ao-postgres` | StatefulSet / Service |
-| `route_host` | `syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com` | Ingress host |
-| `ao_channel` | `early-access` | Override only if the existing Subscription already uses that channel |
+| `route_host` | `syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com` | Ingress host |
+| `ao_channel` | `early-access` | Target OLM channel (`early-access` or `stable`); ensure_operator reconciles the Subscription |
 | `catalog_source` | `redhat-operators` | Marketplace catalog |
 | `catalog_ns` | `openshift-marketplace` | CatalogSource namespace |
 | `operator_ns` | `automation-orchestrator-operator-system` | Existing operator install |
@@ -86,6 +87,7 @@ Credential extra-vars (values from AAP credentials, never committed):
 | `pg_admin_password` | `vault_pg_admin_password` | `ea-ensure-db` |
 | `pg_orchestrator_password` | `vault_pg_orchestrator_password` | `ea-ensure-db`, `ea-ensure-secrets` |
 | `pg_temporal_password` | `vault_pg_temporal_password` | `ea-ensure-db`, `ea-ensure-secrets` |
+| `pg_execution_plane_password` | `vault_pg_execution_plane_password` | `ea-ensure-db`, `ea-ensure-secrets` when script nodes on |
 
 Optional:
 
@@ -121,16 +123,19 @@ unavailable; live OpenShift mutations expect both.
 operator sets `APP_SCRIPT_NODES_ENABLED=true` on `{ao_name}-worker`
 **only when Execution Plane is enabled**.
 
-That opt-in needs Secret `{ao_name}-execution-plane-database` in
-`app_ns` (keys `database`, `username`, `password`) plus an Execution
-Plane database on the BYO PostgreSQL. `ea-ensure-db` /
-`ea-ensure-secrets` do **not** create those.
+With `script_nodes_enabled=true` (default):
 
-On a stock weekly provision, `ea-postconfig` **fails closed** until
-that Secret exists (or EP is already enabled). Do not work around it
-with a worker Deployment env patch (operator SSA reverts it).
+- `ea-ensure-db` creates PG role/database `execution_plane`
+- `ea-ensure-secrets` applies Secret `{ao_name}-execution-plane-database`
+  (keys `database`, `username`, `password`)
+- `ea-postconfig` sets `ENABLE_EXECUTION_PLANE=true` and waits for
+  `APP_SCRIPT_NODES_ENABLED=true` on the worker
 
-To skip script-node enablement for a run:
+Pass `pg_execution_plane_password` with the other PG credentials.
+Do not work around failures with a worker Deployment env patch
+(operator SSA reverts it).
+
+To skip Execution Plane / script nodes for a run:
 
 ```bash
 -e script_nodes_enabled=false
@@ -150,7 +155,7 @@ for API lag.
 | `ea-teardown-app` | 15 min | CR delete + ownerRef GC wait 600s |
 | `ea-ensure-db` | 15 min | StatefulSet Ready + init SQL (~300s wait) |
 | `ea-ensure-secrets` | 10 min | Secret apply + optional connect check |
-| `ea-ensure-operator` | 10 min | Subscription asserts only |
+| `ea-ensure-operator` | 20 min | Create on clean cluster or assert existing (wait CSV) |
 | `ea-apply-ao-cr` | 10 min | Apply + ~90s `ConfigurationValid` |
 | `ea-postconfig` | 10 min | EP opt-in + ~3 min worker-env wait |
 | `ea-health-check` | **> 25 min** | Ready wait 1200s (~20 min) plus HTTPS `/health` retries (~4 min) |
@@ -172,17 +177,17 @@ Guards are var-driven in `roles/ao_ea_common` (`teardown_target_ns`,
 `teardown_delete_statefulsets`). The teardown role feeds those lists before
 any `k8s` `state=absent` and refuses `app_ns == db_ns`.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-teardown-app
-oc get automationorchestrator -n syntarogation-ao-nov
+oc get automationorchestrator -n syntarogation-ao
 # expected: no my-orchestrator (or empty list)
 
-oc get pvc -n syntarogation-ao-nov-db
+oc get pvc -n syntarogation-ao-db
 # expected: data-ao-postgres-0 Bound
 
-oc get statefulset ao-postgres -n syntarogation-ao-nov-db
+oc get statefulset ao-postgres -n syntarogation-ao-db
 # expected: still present
 
 # Re-run JT: success / no-op; PVC still Bound
@@ -198,9 +203,10 @@ and PVC `pg_pvc_name` via `volumeClaimTemplates` (`gp3-csi`, 20Gi). **Never
 deletes** that PVC. If it is already Bound, the play only ensures
 StatefulSet/Service and pod Ready.
 
-Init SQL (idempotent): roles `orchestrator` / `temporal`; databases
-`orchestrator`, `temporal`, `temporal_visibility`; `CREATE EXTENSION pgcrypto`
-as user `orchestrator` (not `postgres`).
+Init SQL (idempotent): roles `orchestrator` / `temporal` (and
+`execution_plane` when `script_nodes_enabled=true`); databases
+`orchestrator`, `temporal`, `temporal_visibility` (and `execution_plane`);
+`CREATE EXTENSION pgcrypto` as user `orchestrator` (not `postgres`).
 
 Produces facts `pg_host`, `pvc_bound`, `db_ready`.
 
@@ -212,17 +218,18 @@ real values):
 | `pg_admin_password` | `vault_pg_admin_password` | SCLORG `POSTGRESQL_ADMIN_PASSWORD` (first boot) |
 | `pg_orchestrator_password` | `vault_pg_orchestrator_password` | role `orchestrator` |
 | `pg_temporal_password` | `vault_pg_temporal_password` | role `temporal` |
+| `pg_execution_plane_password` | `vault_pg_execution_plane_password` | role `execution_plane` (script nodes) |
 
 AAP Job Template creation is human-owned.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-ensure-db
-oc get pvc -n syntarogation-ao-nov-db
+oc get pvc -n syntarogation-ao-db
 # expected: data-ao-postgres-0 Bound (same volumeName as before)
 
-oc get statefulset,svc,pod -n syntarogation-ao-nov-db
+oc get statefulset,svc,pod -n syntarogation-ao-db
 # expected: ao-postgres 1/1; pod Ready
 
 # Re-run JT: success / no-op; PVC still Bound; same volumeName
@@ -233,9 +240,11 @@ oc get statefulset,svc,pod -n syntarogation-ao-nov-db
 Playbook: `playbooks/ensure_secrets.yml`.
 
 Ensures Namespace `app_ns` and applies Secrets `orchestrator-pg-credentials`
-and `temporal-pg-credentials` in that namespace. Keys match the AO CR
-`secretRef` schema (`database`, `username`, `password`). Users/databases
-are `orchestrator` / `temporal` — the same roles `ea-ensure-db` creates.
+and `temporal-pg-credentials` in that namespace. When
+`script_nodes_enabled=true`, also applies
+`{ao_name}-execution-plane-database`. Keys match the AO CR / EP schema
+(`database`, `username`, `password`). Users/databases match the roles
+`ea-ensure-db` creates.
 
 Passwords **must** come from AAP credentials as extra-vars and **must**
 match `ea-ensure-db` (never commit real values):
@@ -244,6 +253,7 @@ match `ea-ensure-db` (never commit real values):
 |---|---|---|
 | `pg_orchestrator_password` | `vault_pg_orchestrator_password` | `orchestrator-pg-credentials` / `password` |
 | `pg_temporal_password` | `vault_pg_temporal_password` | `temporal-pg-credentials` / `password` |
+| `pg_execution_plane_password` | `vault_pg_execution_plane_password` | `{ao}-execution-plane-database` / `password` |
 
 Optional read-only connect: exec `psql` in the PostgreSQL pod as those
 users (TCP to localhost so `pg_hba` uses password auth). Auth failure
@@ -255,59 +265,59 @@ fails the play with `password mismatch / DB reuse`.
 
 AAP Job Template creation is human-owned.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-ensure-secrets
 oc get secret orchestrator-pg-credentials temporal-pg-credentials \
-  -n syntarogation-ao-nov
+  -n syntarogation-ao
 # expected: both present (Opaque)
 
-oc get secret orchestrator-pg-credentials -n syntarogation-ao-nov \
+oc get secret orchestrator-pg-credentials -n syntarogation-ao \
   -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
 # expected: database / password / username (keys only; do not extract values)
 
 # Re-run JT: success / no-op; same secret names
 ```
 
+## Orchestration wrappers (local / full run)
+
+| Playbook | Mode | Keeps DB | Keeps AO CR |
+|---|---|---|---|
+| `playbooks/update_release.yml` | update | yes | yes |
+| `playbooks/clean_install.yml` | clean | creates / never deletes PVC | creates |
+
+Pass `-e ao_channel=early-access` or `-e ao_channel=stable`. Optional
+weekly wipe: `teardown_app` then `update_release`.
+
 ## Ensure operator (`ea-ensure-operator`)
 
 Playbook: `playbooks/ensure_operator.yml`.
 
-**Asserts** the existing OperatorHub Subscription in `operator_ns`. It does
-**not** create or patch a Subscription in v1.
+**Clean cluster (no AO Subscription):** creates `operator_ns`, OperatorGroup,
+and Subscription from `catalog_source` / `ao_channel` (default
+`early-access`, `installPlanApproval` from
+`operator_install_plan_approval`, default `Automatic`), then waits for
+`AtLatestKnown` + CSV `Succeeded`.
 
-Checks:
+**Existing Subscription:** with `operator_manage_channel=true` (default),
+reconciles `spec.channel` (and `installPlanApproval`) to `ao_channel`,
+waits until state `AtLatestKnown` and CSV `Succeeded`. Never creates a
+second Subscription. Still refuses duplicates (`ao_subscription_count > 1`).
 
-1. Subscription `operator_subscription_name` exists in `operator_ns`.
-2. `spec.channel == ao_channel` (inventory default `early-access`; honor
-   extra-var override).
-3. `status.state` is `AtLatestKnown` and the installed CSV phase is
-   `Succeeded`.
-4. Exactly one Subscription for package `automation-orchestrator-operator`
-   cluster-wide.
-
-Channel mismatch (example: `-e ao_channel=stable` while the cluster is on
-`early-access`) **fails clearly**. Do not patch the Subscription; either
-set `ao_channel` to the installed channel, or have an operator change the
-existing Subscription outside this playbook.
-
-Produces facts `installed_csv` and `channel_ok` (`false` until asserts
-pass).
+Produces facts `installed_csv`, `channel_ok`, `operator_created`, and
+`operator_channel_reconciled`.
 
 AAP Job Template creation is human-owned.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-ensure-operator
 oc get subscription automation-orchestrator-operator \
   -n automation-orchestrator-operator-system \
   -o custom-columns=CHANNEL:.spec.channel,SOURCE:.spec.source,CSV:.status.installedCSV,STATE:.status.state
-# expected: CHANNEL=early-access; STATE=AtLatestKnown
-
-# Negative: launch JT with ao_channel=stable while the cluster is
-# early-access — expect fail; Subscription must be unchanged
+# expected: CHANNEL matches ao_channel; STATE=AtLatestKnown
 ```
 
 ## Apply AO CR (`ea-apply-ao-cr`)
@@ -329,18 +339,18 @@ ConfigurationValid succeed).
 
 AAP Job Template creation is human-owned.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-apply-ao-cr
-oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov
+oc get automationorchestrator my-orchestrator -n syntarogation-ao
 # expected: CR present. ConfigurationValid=True. Ready may still be False
 # (ea-health-check waits for Ready).
 
-oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov \
+oc get automationorchestrator my-orchestrator -n syntarogation-ao \
   -o jsonpath='{.spec.postgres.host}{"\n"}{.spec.ingress.host}{"\n"}'
-# expected: ao-postgres.syntarogation-ao-nov-db.svc
-#           syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+# expected: ao-postgres.syntarogation-ao-db.svc
+#           syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com
 
 # Re-run JT: success / no-op; same CR name and postgres.host
 ```
@@ -373,19 +383,18 @@ Produces fact `script_nodes_effective` (`false` until the worker env is
 
 AAP Job Template creation is human-owned.
 
-`ea-ensure-db` / `ea-ensure-secrets` do **not** create the Execution
-Plane database or Secret today. On a stock weekly provision the JT
-fails closed until those exist (or EP is already enabled). Do not work
-around that with a Deployment env patch.
+`ea-ensure-db` / `ea-ensure-secrets` create the Execution Plane database
+and Secret when `script_nodes_enabled=true`. Postconfig then enables EP.
+Do not work around failures with a Deployment env patch.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-postconfig (success)
-oc get deploy -n syntarogation-ao-nov -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .spec.template.spec.containers[*]}{.env[*].name}{"="}{.env[*].value}{"\n"}{end}{end}' | grep APP_SCRIPT_NODES_ENABLED
+oc get deploy -n syntarogation-ao -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .spec.template.spec.containers[*]}{.env[*].name}{"="}{.env[*].value}{"\n"}{end}{end}' | grep APP_SCRIPT_NODES_ENABLED
 # expected: APP_SCRIPT_NODES_ENABLED=true on my-orchestrator-worker
 
-oc get configmap my-orchestrator-admin-settings -n syntarogation-ao-nov \
+oc get configmap my-orchestrator-admin-settings -n syntarogation-ao \
   -o jsonpath='{.data.ENABLE_EXECUTION_PLANE}{"\n"}'
 # expected: true when this JT enabled EP
 
@@ -414,25 +423,25 @@ clearly (`Route down`).
 
 AAP Job Template creation is human-owned. This playbook is read-only.
 
-Cluster verification (human, PDE AO-05):
+Cluster verification (human, OpenShift instance):
 
 ```bash
 # After JT ea-health-check
-oc get automationorchestrator my-orchestrator -n syntarogation-ao-nov
+oc get automationorchestrator my-orchestrator -n syntarogation-ao
 # expected: READY True
 
-oc get deploy -n syntarogation-ao-nov
+oc get deploy -n syntarogation-ao
 # expected: my-orchestrator-{backend,worker,background-worker,ui,redis,temporal} available
 
-oc get route -n syntarogation-ao-nov
-# expected: host syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+oc get route -n syntarogation-ao
+# expected: host syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com
 
 curl -sS -o /dev/null -w "%{http_code}\n" \
-  https://syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com/health
+  https://syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com/health
 # expected: 200
 
 oc get secret my-orchestrator-initial-admin-password \
-  -n syntarogation-ao-nov \
+  -n syntarogation-ao \
   -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
 # expected: password (key only; do not extract the value)
 ```

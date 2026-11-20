@@ -33,6 +33,13 @@
         definition: "{{ lookup('template', 'temporal_pg_credentials.yml.j2') }}"
       no_log: true
 
+    - name: Apply Execution Plane database Secret
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('template', 'execution_plane_database.yml.j2') }}"
+      no_log: true
+      when: script_nodes_enabled | default(true) | bool
+
     - name: Confirm app-ns PG secrets exist
       kubernetes.core.k8s_info:
         api_version: v1
@@ -58,6 +65,32 @@
         success_msg: >-
           Secrets {{ orchestrator_pg_secret_name }} and
           {{ temporal_pg_secret_name }} are present in {{ app_ns }}.
+
+    - name: Confirm Execution Plane database Secret exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ ao_ep_db_secret_name }}"
+        namespace: "{{ app_ns }}"
+      register: ep_db_secret
+      no_log: true
+      when: script_nodes_enabled | default(true) | bool
+
+    - name: Require Execution Plane database Secret
+      ansible.builtin.assert:
+        that:
+          - (ep_db_secret.resources | default([])) | length > 0
+        fail_msg: >-
+          Secret {{ ao_ep_db_secret_name }} must exist in {{ app_ns }}
+          (keys database, username, password) for script nodes.
+        success_msg: >-
+          Secret {{ ao_ep_db_secret_name }} is present in {{ app_ns }}.
+      when: script_nodes_enabled | default(true) | bool
+
+    - name: Mark Execution Plane Secret ready
+      ansible.builtin.set_fact:
+        ep_secret_ready: true
+      when: script_nodes_enabled | default(true) | bool
 
 - name: Mark app-ns PG secrets ready
   ansible.builtin.set_fact:
@@ -138,7 +171,10 @@
     msg:
       secrets_ready: "{{ secrets_ready }}"
       secrets_verified: "{{ secrets_verified }}"
+      ep_secret_ready: "{{ ep_secret_ready | default(false) }}"
+      script_nodes_enabled: "{{ script_nodes_enabled | default(true) }}"
       app_ns: "{{ app_ns }}"
       pg_service_host: "{{ pg_service_host }}"
       orchestrator_pg_secret_name: "{{ orchestrator_pg_secret_name }}"
       temporal_pg_secret_name: "{{ temporal_pg_secret_name }}"
+      ao_ep_db_secret_name: "{{ ao_ep_db_secret_name }}"

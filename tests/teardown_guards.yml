@@ -1,9 +1,9 @@
 ---
 # Cluster-free teardown guard coverage. Does not call k8s.
 # Positive: ansible-playbook tests/teardown_guards.yml
-# Negative: ansible-playbook tests/teardown_guards.yml -e app_ns=syntarogation-ao-nov-db
+# Negative: ansible-playbook tests/teardown_guards.yml -e app_ns=syntarogation-ao-db
 #           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_pvcs":["data-ao-postgres-0"]}'
-#           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_namespaces":["syntarogation-ao-nov-db"]}'
+#           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_namespaces":["syntarogation-ao-db"]}'
 #           ansible-playbook tests/teardown_guards.yml -e '{"teardown_delete_statefulsets":["ao-postgres"]}'
 
 - name: Exercise teardown guards without a cluster

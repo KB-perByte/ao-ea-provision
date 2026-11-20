@@ -2,8 +2,10 @@
 # Local script-nodes assert coverage without a cluster. Does not call k8s.
 # Positive: ansible-playbook tests/postconfig_assert.yml
 #           (worker already has APP_SCRIPT_NODES_ENABLED=true)
-# Negative: ansible-playbook tests/postconfig_assert.yml -e worker_script_nodes_enabled=false
-#           (must fail clearly; do not patch the worker Deployment)
+# Negative: ansible-playbook tests/postconfig_assert.yml \
+#             -e worker_script_nodes_enabled=false \
+#             -e ep_db_secret_present=false -e ep_db_secret_keys_ok=false
+#           (must fail with a clear EP-missing message; no worker patch)
 
 - name: Exercise postconfig script-nodes assert without a cluster
   hosts: localhost

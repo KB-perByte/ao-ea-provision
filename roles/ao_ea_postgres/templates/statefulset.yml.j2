@@ -16,8 +16,12 @@ spec:
       labels:
         app: {{ pg_service_name }}
     spec:
+      # Single container only. Name must stay stable: a strategic-merge
+      # apply that changes the container name leaves the old container in
+      # place (duplicate port 5432 → CrashLoopBackOff). force-replace the
+      # StatefulSet when applying (see role tasks).
       containers:
-        - name: postgresql
+        - name: postgres
           image: {{ pg_image }}
           imagePullPolicy: IfNotPresent
           ports:
@@ -31,14 +35,14 @@ spec:
                   name: {{ pg_secret_name }}
                   key: admin-password
             - name: POSTGRESQL_USER
-              value: orchestrator
+              value: "{{ pg_orchestrator_user }}"
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ pg_secret_name }}
                   key: orchestrator-password
             - name: POSTGRESQL_DATABASE
-              value: orchestrator
+              value: "{{ pg_orchestrator_database }}"
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: "{{ pg_max_connections }}"
           volumeMounts:
@@ -59,6 +63,7 @@ spec:
               command: ["pg_isready", "-U", "postgres"]
             periodSeconds: 30
             timeoutSeconds: 5
+
   volumeClaimTemplates:
     - metadata:
         name: data

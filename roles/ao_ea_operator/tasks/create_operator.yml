@@ -1,0 +1,53 @@
+---
+# First-time install only. Callers must already know there is no AO
+# Subscription cluster-wide. Channel reconcile for existing Subs is in
+# reconcile_channel.yml.
+
+- name: Ensure the operator namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'operator_namespace.yml.j2') }}"
+
+- name: Ensure the OperatorGroup exists
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'operator_group.yml.j2') }}"
+
+- name: Create the AO Operator Subscription
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'subscription.yml.j2') }}"
+
+- name: Wait until the Subscription reports an installed CSV
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ operator_subscription_name }}"
+    namespace: "{{ operator_ns }}"
+  register: ao_sub_wait
+  until: >-
+    (ao_sub_wait.resources | default([]) | length > 0)
+    and ((ao_sub_wait.resources[0].status.installedCSV | default('')) | length > 0)
+  retries: "{{ ((operator_wait_timeout | int) / (operator_wait_delay | int)) | int }}"
+  delay: "{{ operator_wait_delay | int }}"
+
+- name: Record installed CSV from wait
+  ansible.builtin.set_fact:
+    installed_csv: "{{ ao_sub_wait.resources[0].status.installedCSV }}"
+
+- name: Wait until the ClusterServiceVersion Succeeded
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ installed_csv }}"
+    namespace: "{{ operator_ns }}"
+  register: ao_csv_wait
+  until: >-
+    (ao_csv_wait.resources | default([]) | length > 0)
+    and ((ao_csv_wait.resources[0].status.phase | default('')) == ao_csv_healthy_phase)
+  retries: "{{ ((operator_wait_timeout | int) / (operator_wait_delay | int)) | int }}"
+  delay: "{{ operator_wait_delay | int }}"
+
+- name: Mark that this run created the Subscription
+  ansible.builtin.set_fact:
+    operator_created: true

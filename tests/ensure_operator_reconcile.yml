@@ -1,0 +1,62 @@
+---
+# Offline: reconcile_channel.yml skips when channel already matches;
+# marks reconciled when channel differs (k8s task skipped without API by
+# mocking via when=false path — exercise set_fact conditions only).
+
+- name: Exercise channel reconcile facts without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    subscription_exists: true
+    subscription_channel: early-access
+    subscription_approval: Automatic
+    operator_manage_channel: true
+    operator_install_plan_approval: Automatic
+    operator_channel_reconciled: false
+  tasks:
+    - name: Skip path when channel already matches ao_channel
+      ansible.builtin.set_fact:
+        _needs_reconcile: >-
+          {{
+            (operator_manage_channel | bool)
+            and (subscription_exists | bool)
+            and (
+              (subscription_channel | default('')) != ao_channel
+              or (subscription_approval | default('')) != operator_install_plan_approval
+            )
+          }}
+
+    - name: Require no reconcile when channel matches
+      ansible.builtin.assert:
+        that:
+          - not (_needs_reconcile | bool)
+          - ao_channel == 'early-access'
+        fail_msg: >-
+          With subscription_channel=early-access and ao_channel=early-access,
+          reconcile must not be required.
+        success_msg: Channel already matches; reconcile not required.
+
+    - name: Target stable channel
+      ansible.builtin.set_fact:
+        ao_channel: stable
+
+    - name: Recompute reconcile need after channel override
+      ansible.builtin.set_fact:
+        _needs_reconcile: "{{
+            (operator_manage_channel | bool)
+            and (subscription_exists | bool)
+            and (
+              (subscription_channel | default('')) != ao_channel
+              or (subscription_approval | default('')) != operator_install_plan_approval
+            )
+          }}"
+
+    - name: Require reconcile when switching to stable
+      ansible.builtin.assert:
+        that:
+          - _needs_reconcile | bool
+        fail_msg: >-
+          Switching ao_channel to stable while Subscription is early-access
+          must require channel reconcile.
+        success_msg: Channel mismatch requires reconcile (playbook will patch).

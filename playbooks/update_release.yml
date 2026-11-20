@@ -1,0 +1,54 @@
+---
+# In-place update for ao_channel (early-access | stable). Keeps DB PVC
+# and the AO CR; reconciles operator channel to latest CSV, then refreshes
+# secrets / CR / postconfig / health. Never tears down the app.
+#
+#   ansible-playbook playbooks/update_release.yml \
+#     -e @secrets/local.extra_vars.yml -e ao_channel=early-access
+#   ansible-playbook playbooks/update_release.yml \
+#     -e @secrets/local.extra_vars.yml -e ao_channel=stable
+#
+# Optional weekly app wipe (keep DB): run playbooks/teardown_app.yml first,
+# then this playbook.
+
+- name: Update Automation Orchestrator release ({{ ao_channel | default('early-access') }})
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    provision_mode: update
+  tasks:
+    - name: Record update mode
+      ansible.builtin.debug:
+        msg: >-
+          provision_mode={{ provision_mode }} ao_channel={{ ao_channel }}
+          (keep DB PVC and AO CR; no teardown).
+
+    - name: Preflight
+      ansible.builtin.include_role:
+        name: ao_ea_common
+        tasks_from: preflight
+
+    - name: Ensure operator on ao_channel at latest CSV
+      ansible.builtin.include_role:
+        name: ao_ea_operator
+
+    - name: Ensure PostgreSQL (never delete PVC)
+      ansible.builtin.include_role:
+        name: ao_ea_postgres
+
+    - name: Ensure app-ns secrets (incl. Execution Plane when script nodes on)
+      ansible.builtin.include_role:
+        name: ao_ea_secrets
+
+    - name: Apply AutomationOrchestrator CR (idempotent)
+      ansible.builtin.include_role:
+        name: ao_ea_instance
+
+    - name: Postconfigure script nodes via Execution Plane
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig
+
+    - name: Health-check Ready + Route + /health
+      ansible.builtin.include_role:
+        name: ao_ea_health

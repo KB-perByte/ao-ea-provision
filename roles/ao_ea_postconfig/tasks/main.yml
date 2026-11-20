@@ -83,6 +83,30 @@
     - name: Record worker script-nodes env
       ansible.builtin.include_tasks: record_worker_env.yml
 
+    # Fail fast with a clear message before enable/poll when EP Secret
+    # is missing (stock install without Execution Plane).
+    - name: Fail early when script nodes are requested but EP Secret is missing
+      ansible.builtin.fail:
+        msg: |
+          Script nodes requested (script_nodes_enabled=true) but Execution
+          Plane is not configured for {{ app_ns }}/{{ ao_name }}.
+
+          Missing: Secret {{ ao_ep_db_secret_name }} in {{ app_ns }}
+          (need keys: database, username, password).
+
+          Graceful options:
+            • Re-run ensure_db + ensure_secrets with
+              pg_execution_plane_password set (creates the role/DB + Secret),
+              then re-run postconfig
+            • Skip script nodes for this run:
+                -e script_nodes_enabled=false
+
+          This playbook will not patch the worker Deployment (operator SSA
+          would overwrite APP_SCRIPT_NODES_ENABLED).
+      when:
+        - not (worker_script_nodes_enabled | bool)
+        - not (ep_db_secret_present | bool) or not (ep_db_secret_keys_ok | bool)
+
     - name: Enable Execution Plane when a reconciler-safe path exists
       ansible.builtin.include_tasks: enable_ep.yml
       when: not (worker_script_nodes_enabled | bool)

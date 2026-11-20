@@ -1,0 +1,51 @@
+---
+# Clean install on a new (or empty) cluster for ao_channel
+# (early-access | stable). Creates DB, secrets, operator, AO CR,
+# postconfig, health. Never deletes an existing DB PVC.
+#
+#   ansible-playbook playbooks/clean_install.yml \
+#     -e @secrets/local.extra_vars.yml -e ao_channel=early-access
+#   ansible-playbook playbooks/clean_install.yml \
+#     -e @secrets/local.extra_vars.yml -e ao_channel=stable
+
+- name: Clean-install Automation Orchestrator ({{ ao_channel | default('early-access') }})
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    provision_mode: clean
+  tasks:
+    - name: Record clean-install mode
+      ansible.builtin.debug:
+        msg: >-
+          provision_mode={{ provision_mode }} ao_channel={{ ao_channel }}
+          (no teardown; keep any Bound DB PVC).
+
+    - name: Preflight
+      ansible.builtin.include_role:
+        name: ao_ea_common
+        tasks_from: preflight
+
+    - name: Ensure PostgreSQL (never delete PVC)
+      ansible.builtin.include_role:
+        name: ao_ea_postgres
+
+    - name: Ensure app-ns secrets (incl. Execution Plane when script nodes on)
+      ansible.builtin.include_role:
+        name: ao_ea_secrets
+
+    - name: Ensure operator Subscription for ao_channel
+      ansible.builtin.include_role:
+        name: ao_ea_operator
+
+    - name: Apply AutomationOrchestrator CR
+      ansible.builtin.include_role:
+        name: ao_ea_instance
+
+    - name: Postconfigure script nodes via Execution Plane
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig
+
+    - name: Health-check Ready + Route + /health
+      ansible.builtin.include_role:
+        name: ao_ea_health

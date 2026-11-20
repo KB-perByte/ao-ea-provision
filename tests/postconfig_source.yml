@@ -50,8 +50,9 @@
           - "'execution-plane-database' in postconfig_text"
           - "'executionPlane' in postconfig_text"
           - "'Server-Side Apply' in postconfig_text"
-          - "'Do not patch the worker' in postconfig_text"
-          - "'doomed Deployment env patch' in postconfig_text"
+          - "'will not patch the worker Deployment' in postconfig_text"
+          - "'script_nodes_enabled=false' in postconfig_text"
+          - "'Fail early when script nodes are requested' in postconfig_text"
           - "'kind: ConfigMap' in postconfig_text"
           - "'kubernetes.core.k8s_info:' in postconfig_text"
         fail_msg: >-

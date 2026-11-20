@@ -10,6 +10,12 @@ pg_orchestrator_user: orchestrator
 pg_orchestrator_database: orchestrator
 pg_temporal_user: temporal
 pg_temporal_database: temporal
+# Execution Plane Secret (operator default name: {ao_name}-execution-plane-database)
+ao_ep_db_secret_suffix: execution-plane-database
+ao_ep_db_secret_name: "{{ ao_name }}-{{ ao_ep_db_secret_suffix }}"
+pg_execution_plane_user: execution_plane
+pg_execution_plane_database: execution_plane
+script_nodes_enabled: true
 pg_port: 5432
 k8s_validate_certs: true
 
@@ -19,7 +25,6 @@ secrets_verify_connect: true
 pg_wait_timeout: 300
 pg_wait_delay: 5
 
-# Injected from AAP extra_vars or Controller credentials.
-# Same values as ea-ensure-db role passwords.
-pg_orchestrator_password: "{{ vault_pg_orchestrator_password | default('') }}"
-pg_temporal_password: "{{ vault_pg_temporal_password | default('') }}"
+# Passwords are NOT defaulted here. Pass via -e @secrets/local.extra_vars.yml
+# or AAP credentials (pg_* or vault_pg_*). Same values as ea-ensure-db.
+# EP also needs pg_execution_plane_password when script_nodes_enabled=true.

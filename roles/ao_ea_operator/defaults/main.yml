@@ -7,3 +7,12 @@ ao_operator_package: automation-orchestrator-operator
 k8s_validate_certs: true
 ao_subscription_healthy_state: AtLatestKnown
 ao_csv_healthy_phase: Succeeded
+operator_install_plan_approval: Automatic
+# When true, existing Subscriptions are reconciled to ao_channel (and
+# installPlanApproval) then waited to AtLatestKnown. Required for
+# update_release / channel switches via playbooks.
+operator_manage_channel: true
+operator_wait_timeout: 900
+operator_wait_delay: 15
+operator_created: false
+operator_channel_reconciled: false

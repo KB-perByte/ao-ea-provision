@@ -12,6 +12,7 @@
     pg_admin_password: placeholder
     pg_orchestrator_password: placeholder
     pg_temporal_password: placeholder
+    pg_execution_plane_password: placeholder
   tasks:
     - name: Run postgres ensure guards
       ansible.builtin.include_role:

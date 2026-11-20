@@ -1,0 +1,56 @@
+---
+# Execution Environment for ao-ea-provision (OpenShift / early-access AO).
+#
+# Follows ansible-builder v3 definition + Galaxy Hub auth patterns:
+#   https://docs.ansible.com/projects/builder/en/latest/definition/
+#   https://docs.ansible.com/projects/builder/en/latest/scenario_guides/scenario_custom/
+#   https://docs.ansible.com/projects/builder/en/latest/scenario_guides/scenario_secret_passing/
+#
+# AAP ee-minimal already includes ansible-core + ansible-runner — do not
+# reinstall them unless you need a specific pin.
+#
+version: 3
+
+images:
+  base_image:
+    # Requires: podman login registry.redhat.io
+    name: registry.redhat.io/ansible-automation-platform/ee-minimal-rhel9:2.18.20-1
+
+dependencies:
+  # Collections + Python only. No ansible_core / ansible_runner — provided
+  # by the AAP base image (builder docs: skip when using ee-minimal).
+  galaxy: ansible-collections.yml
+  python: python-packages.txt
+
+additional_build_files:
+  # Non-secret Galaxy/Hub server list (urls only; token is a build-arg)
+  - src: ansible.cfg
+    dest: configs
+
+options:
+  # Downstream AAP images use microdnf, not dnf
+  package_manager_path: /usr/bin/microdnf
+  tags:
+    - quay.io/sagpaul/ao-ea-provision:latest
+
+additional_build_steps:
+  prepend_base:
+    - RUN $PYCMD -m pip install --upgrade pip setuptools
+
+  prepend_galaxy:
+    # Server list / URLs from ansible.cfg (no secrets in this file)
+    - ADD _build/configs/ansible.cfg /etc/ansible/ansible.cfg
+    #
+    # Hub token must NOT be committed. Pass at build time (builder docs):
+    #   ansible-builder build -v3 \
+    #     --build-arg ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN \
+    #     --container-runtime podman
+    #
+    # ARG alone (no ENV of the value) keeps the token out of the final
+    # image layers when only the galaxy stage needs it.
+    - ARG ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN
+
+  append_final:
+    # Fail the build early if required runtime deps are missing
+    - RUN $PYCMD -c "import kubernetes, yaml, requests, jsonpatch"
+    - RUN ansible-galaxy collection list | grep -E 'kubernetes\.core|redhat\.openshift'

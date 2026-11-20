@@ -1,0 +1,41 @@
+---
+# Wait until Subscription is AtLatestKnown and installed CSV Succeeded.
+# Used after create and after channel reconcile so OLM can advance CSV.
+
+- name: Wait until Subscription is AtLatestKnown with an installed CSV
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ operator_subscription_name }}"
+    namespace: "{{ operator_ns }}"
+  register: ao_sub_healthy_wait
+  until: >-
+    (ao_sub_healthy_wait.resources | default([]) | length > 0)
+    and ((ao_sub_healthy_wait.resources[0].status.installedCSV | default('')) | length > 0)
+    and ((ao_sub_healthy_wait.resources[0].status.state | default('')) == ao_subscription_healthy_state)
+  retries: "{{ ((operator_wait_timeout | int) / (operator_wait_delay | int)) | int }}"
+  delay: "{{ operator_wait_delay | int }}"
+
+- name: Record installed CSV after healthy wait
+  ansible.builtin.set_fact:
+    installed_csv: "{{ ao_sub_healthy_wait.resources[0].status.installedCSV }}"
+    subscription_state: "{{ ao_sub_healthy_wait.resources[0].status.state }}"
+    subscription_channel: "{{ ao_sub_healthy_wait.resources[0].spec.channel | default('') }}"
+    subscription_approval: "{{ ao_sub_healthy_wait.resources[0].spec.installPlanApproval | default('') }}"
+
+- name: Wait until the ClusterServiceVersion Succeeded
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ installed_csv }}"
+    namespace: "{{ operator_ns }}"
+  register: ao_csv_healthy_wait
+  until: >-
+    (ao_csv_healthy_wait.resources | default([]) | length > 0)
+    and ((ao_csv_healthy_wait.resources[0].status.phase | default('')) == ao_csv_healthy_phase)
+  retries: "{{ ((operator_wait_timeout | int) / (operator_wait_delay | int)) | int }}"
+  delay: "{{ operator_wait_delay | int }}"
+
+- name: Record CSV phase after healthy wait
+  ansible.builtin.set_fact:
+    csv_phase: "{{ ao_csv_healthy_wait.resources[0].status.phase }}"

@@ -1,0 +1,148 @@
+# ao-ea-provision
+
+Ansible content for **weekly teardown + reprovision** of an early-access
+Automation Orchestrator instance on OpenShift, while
+keeping the PostgreSQL project and PVC intact.
+
+Stable AO (or a local `ansible-playbook` run) drives these playbooks; AAP
+Job Templates are the intended production path. Stitching guides:
+
+- [docs/aap-setup.md](docs/aap-setup.md) — Job Templates, credentials, EE
+- [docs/ao-workflow.md](docs/ao-workflow.md) — stable AO workflow node order
+- [docs/local-run.md](docs/local-run.md) — run playbooks from your laptop
+
+## Four provision modes
+
+| Scenario | Playbook | Channel |
+|---|---|---|
+| Update existing (keep DB + CR) | `playbooks/update_release.yml` | `-e ao_channel=stable` or `early-access` |
+| Clean install (new cluster) | `playbooks/clean_install.yml` | `-e ao_channel=stable` or `early-access` |
+
+```bash
+EX="-e @secrets/local.extra_vars.yml"
+ansible-playbook playbooks/update_release.yml $EX -e ao_channel=stable
+ansible-playbook playbooks/update_release.yml $EX -e ao_channel=early-access
+ansible-playbook playbooks/clean_install.yml $EX -e ao_channel=stable
+ansible-playbook playbooks/clean_install.yml $EX -e ao_channel=early-access
+```
+
+Optional weekly app wipe (keep DB): `teardown_app.yml` then `update_release.yml`.
+
+## Granular playbooks (AAP JT / step-by-step)
+
+| # | Playbook | Purpose |
+|---|---|---|
+| 1 | `playbooks/preflight.yml` | API / catalog / `ao_channel` available |
+| 2 | `playbooks/teardown_app.yml` | Delete AO CR in `app_ns`; **never** touch DB ns/PVC |
+| 3 | `playbooks/ensure_db.yml` | Ensure PG StatefulSet + init; never delete PVC |
+| 4 | `playbooks/ensure_secrets.yml` | Recreate app-ns PG Secrets from vars |
+| 5 | `playbooks/ensure_operator.yml` | Install or reconcile Subscription to `ao_channel`; wait latest CSV |
+| 6 | `playbooks/apply_ao_cr.yml` | Apply `AutomationOrchestrator` CR |
+| 7 | `playbooks/postconfig.yml` | Script nodes via Execution Plane (or skip) |
+| 8 | `playbooks/health_check.yml` | Ready + Route + HTTPS `/health` |
+
+`playbooks/safety_assert.yml` is a local guard helper, not a JT.
+
+Defaults (non-secret) live in `inventory/group_vars/all.yml`:
+
+| Var | Default |
+|---|---|
+| `app_ns` | `syntarogation-ao` |
+| `db_ns` | `syntarogation-ao-db` |
+| `ao_channel` | `early-access` |
+
+## Secrets policy
+
+**No credentials belong in this repository.**
+
+| Allowed in Git | Never in Git |
+|---|---|
+| Namespace names, API URL hostnames, image names | OpenShift API tokens |
+| Secret *names* / key *names* | PostgreSQL passwords |
+| Var names (`pg_orchestrator_password`, `k8s_api_key`) | Initial admin password values |
+| Empty mocks in offline tests | Kubeconfigs, PEM/key files, vault passwords |
+
+Inject secrets at runtime:
+
+- **AAP:** Controller credentials → extra-vars / env
+- **Local:** `secrets/local.extra_vars.yml` (gitignored) or env vars — see [docs/local-run.md](docs/local-run.md)
+
+`.gitignore` excludes `secrets/`, `*.kubeconfig`, `*.pem`, `*.key`, vault
+password files, and `collections/` (Galaxy install output).
+
+### Credential scan (repo hygiene)
+
+A scan of tracked content finds **no committed secret values** — only:
+
+- Variable *names* and Jinja references (`{{ pg_*_password }}`, `k8s_api_key`)
+- Documentation of credential *types*
+- Offline tests that assert presence of key names / forbid hardcoded passwords
+
+Re-check before every push:
+
+```bash
+# From repo root — should print nothing suspicious as VALUES
+rg -n --glob '!.git/**' --glob '!collections/**' \
+  -e '-----BEGIN' \
+  -e 'oc login --token=' \
+  -e 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' \
+  -e 'password:\s*["'\''][^"'\''${][^"'\'']{4,}' \
+  .
+```
+
+## Quick start (offline)
+
+```bash
+cd ao-ea-provision
+python3 -m venv .venv && source .venv/bin/activate
+pip install 'ansible-core>=2.15' kubernetes
+ansible-galaxy collection install -r requirements.yml
+
+# Syntax-check orchestration + JT playbooks
+for p in playbooks/{clean_install,update_release,preflight,teardown_app,ensure_db,ensure_secrets,ensure_operator,apply_ao_cr,postconfig,health_check}.yml; do
+  ansible-playbook --syntax-check "$p" || exit 1
+done
+
+# Offline guard / contract tests (no cluster)
+ansible-playbook tests/teardown_guards.yml
+ansible-playbook tests/preflight_channel.yml
+# …or run the whole tests/ tree:
+for t in tests/*.yml; do ansible-playbook "$t" || exit 1; done
+```
+
+`redhat.openshift` is optional here (playbooks use `kubernetes.core`); on
+AAP, install it from Automation Hub in the EE if you need it later.
+
+## Quick start
+
+See **[docs/local-run.md](docs/local-run.md)** for the full guide. Short form:
+
+```bash
+# 1. Put secrets in a gitignored file (never commit)
+cp docs/examples/local.extra_vars.example.yml secrets/local.extra_vars.yml
+# edit secrets/local.extra_vars.yml — token + PG passwords only
+
+# 2. Prefer a mode wrapper (needs pg_execution_plane_password when script nodes on)
+ansible-playbook playbooks/clean_install.yml -e @secrets/local.extra_vars.yml \
+  -e ao_channel=early-access
+# or: playbooks/update_release.yml … -e ao_channel=stable
+```
+
+## Hard rules
+
+1. Never delete `db_ns`, PVC `pg_pvc_name`, or StatefulSet data.
+2. Never create a second Operator Subscription; reconcile channel on the existing one.
+3. Do not log tokens, PG passwords, or admin password plaintext.
+4. Prefer AAP for production; local runs are for debug and first bring-up.
+
+## Layout
+
+```text
+playbooks/          JT entrypoints
+roles/              ao_ea_* implementation
+inventory/          hosts + group_vars (non-secret defaults)
+tests/              offline ansible-playbook contracts
+docs/               AAP, AO workflow, local run
+secrets/            gitignored — your local extra-vars only
+requirements.yml    collections (kubernetes.core; redhat.openshift Hub)
+```

@@ -7,12 +7,13 @@
     that:
       - app_ns is defined and (app_ns | length) > 0
       - db_ns is defined and (db_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
       - pg_service_host is defined and (pg_service_host | length) > 0
       - pg_service_name is defined and (pg_service_name | length) > 0
       - orchestrator_pg_secret_name is defined and (orchestrator_pg_secret_name | length) > 0
       - temporal_pg_secret_name is defined and (temporal_pg_secret_name | length) > 0
     fail_msg: >-
-      ensure_secrets requires app_ns, db_ns, pg_service_host,
+      ensure_secrets requires app_ns, db_ns, ao_name, pg_service_host,
       pg_service_name, orchestrator_pg_secret_name, and
       temporal_pg_secret_name to be defined and non-empty.
 
@@ -25,21 +26,44 @@
       {{ pg_service_name }}.{{ db_ns }}.svc (AO CR postgres.host /
       runbook PG Service DNS).
 
-- name: Require app PG passwords from AAP credentials
+- name: Resolve app PG passwords from pg_* or vault_pg_*
+  ansible.builtin.set_fact:
+    pg_orchestrator_password: "{{ pg_orchestrator_password | default(vault_pg_orchestrator_password | default(''), true) }}"
+    pg_temporal_password: "{{ pg_temporal_password | default(vault_pg_temporal_password | default(''), true) }}"
+    pg_execution_plane_password: "{{ pg_execution_plane_password | default(vault_pg_execution_plane_password | default(''), true) }}"
+  no_log: true
+
+- name: Require app PG passwords from AAP credentials or local extra-vars
   ansible.builtin.assert:
     that:
       - pg_orchestrator_password is defined and (pg_orchestrator_password | length) > 0
       - pg_temporal_password is defined and (pg_temporal_password | length) > 0
     fail_msg: >-
-      ensure_secrets requires pg_orchestrator_password and
-      pg_temporal_password (or vault_pg_orchestrator_password /
-      vault_pg_temporal_password) from AAP credentials. These must
-      match the DB roles from ea-ensure-db. Do not hardcode real
-      passwords in the repo.
+      ensure_secrets requires non-empty pg_orchestrator_password and
+      pg_temporal_password (or vault_pg_* aliases). secrets/local.extra_vars.yml
+      is not auto-loaded — pass it explicitly:
+        ansible-playbook playbooks/ensure_secrets.yml -e @secrets/local.extra_vars.yml
+      Values must match ea-ensure-db. Do not hardcode passwords in the repo.
     success_msg: App PG passwords are present (values not shown).
+
+- name: Require Execution Plane password when script nodes are enabled
+  ansible.builtin.assert:
+    that:
+      - pg_execution_plane_password is defined and (pg_execution_plane_password | length) > 0
+      - pg_execution_plane_user is defined and (pg_execution_plane_user | length) > 0
+      - pg_execution_plane_database is defined and (pg_execution_plane_database | length) > 0
+      - ao_ep_db_secret_name is defined and (ao_ep_db_secret_name | length) > 0
+    fail_msg: >-
+      script_nodes_enabled=true requires non-empty
+      pg_execution_plane_password (or vault_pg_execution_plane_password)
+      matching ea-ensure-db, so Secret {{ ao_ep_db_secret_name | default('{ao}-execution-plane-database') }}
+      can be applied for postconfig.
+    success_msg: Execution Plane Secret password is present (value not shown).
+  when: script_nodes_enabled | default(true) | bool
 
 - name: Initialize secrets facts fail-closed
   ansible.builtin.set_fact:
     pg_pod_name: "{{ pg_service_name }}-0"
     secrets_ready: false
     secrets_verified: false
+    ep_secret_ready: false

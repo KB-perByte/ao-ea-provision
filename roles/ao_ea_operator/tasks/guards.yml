@@ -21,6 +21,9 @@
     installed_csv: ""
     subscription_exists: false
     subscription_channel: ""
+    subscription_approval: ""
     subscription_state: ""
     csv_phase: ""
     ao_subscription_count: 0
+    operator_created: false
+    operator_channel_reconciled: false

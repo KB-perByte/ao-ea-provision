@@ -1,0 +1,45 @@
+---
+# Copy to secrets/local.extra_vars.yml (gitignored) and fill in values.
+# DO NOT commit the filled-in file. DO NOT put real secrets in this example.
+#
+#   mkdir -p secrets
+#   cp docs/examples/local.extra_vars.example.yml secrets/local.extra_vars.yml
+#   chmod 600 secrets/local.extra_vars.yml
+#
+# Non-secret defaults come from inventory/group_vars/all.yml.
+# Override only what you need below.
+
+# --- OpenShift auth (pick ONE) ---
+# Bearer token for cluster_api (ROSA / oc whoami -t style):
+k8s_api_key: "REPLACE_WITH_OPENSHIFT_TOKEN"
+
+# Or path to a kubeconfig (also gitignored if named *.kubeconfig):
+# k8s_kubeconfig: "/home/YOU/.kube/OpenShift-instance.kubeconfig"
+
+# Lab / self-signed API certs only:
+# k8s_validate_certs: false
+
+# --- PostgreSQL (must match existing DB roles when PVC is reused) ---
+pg_admin_password: "REPLACE_WITH_PG_ADMIN_PASSWORD"
+pg_orchestrator_password: "REPLACE_WITH_ORCHESTRATOR_PASSWORD"
+pg_temporal_password: "REPLACE_WITH_TEMPORAL_PASSWORD"
+# Required when script_nodes_enabled=true (default):
+pg_execution_plane_password: "REPLACE_WITH_EXECUTION_PLANE_PASSWORD"
+
+# Optional vault-style aliases (either form works; playbooks accept both):
+# vault_pg_admin_password: "…"
+# vault_pg_orchestrator_password: "…"
+# vault_pg_temporal_password: "…"
+# vault_pg_execution_plane_password: "…"
+
+# --- Common local overrides ---
+# script_nodes_enabled defaults to true. ensure_db + ensure_secrets create
+# the EP role/DB + Secret; postconfig enables Execution Plane / script nodes.
+# Only set false to skip EP entirely:
+# script_nodes_enabled: false
+
+# Skip PG TCP connect check if SCLORG pg_hba flakes:
+# secrets_verify_connect: false
+
+# Channel override only if Subscription already matches:
+# ao_channel: early-access

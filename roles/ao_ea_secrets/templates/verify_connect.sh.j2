@@ -5,3 +5,7 @@ export PGPASSWORD={{ pg_orchestrator_password | quote }}
 psql -h 127.0.0.1 -p {{ pg_port | int }} -U {{ pg_orchestrator_user | quote }} -d {{ pg_orchestrator_database | quote }} -tAc 'SELECT 1'
 export PGPASSWORD={{ pg_temporal_password | quote }}
 psql -h 127.0.0.1 -p {{ pg_port | int }} -U {{ pg_temporal_user | quote }} -d {{ pg_temporal_database | quote }} -tAc 'SELECT 1'
+{% if script_nodes_enabled | default(true) | bool %}
+export PGPASSWORD={{ pg_execution_plane_password | quote }}
+psql -h 127.0.0.1 -p {{ pg_port | int }} -U {{ pg_execution_plane_user | quote }} -d {{ pg_execution_plane_database | quote }} -tAc 'SELECT 1'
+{% endif %}

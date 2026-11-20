@@ -12,6 +12,13 @@ BEGIN
   ELSE
     ALTER ROLE temporal WITH LOGIN PASSWORD '{{ pg_temporal_password | regex_replace("'", "''") }}';
   END IF;
+{% if script_nodes_enabled | default(true) | bool %}
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ pg_execution_plane_user }}') THEN
+    CREATE ROLE {{ pg_execution_plane_user }} LOGIN PASSWORD '{{ pg_execution_plane_password | regex_replace("'", "''") }}';
+  ELSE
+    ALTER ROLE {{ pg_execution_plane_user }} WITH LOGIN PASSWORD '{{ pg_execution_plane_password | regex_replace("'", "''") }}';
+  END IF;
+{% endif %}
 END
 $$;
 SELECT 'CREATE DATABASE orchestrator OWNER orchestrator'
@@ -20,4 +27,8 @@ SELECT 'CREATE DATABASE temporal OWNER temporal'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'temporal')\gexec
 SELECT 'CREATE DATABASE temporal_visibility OWNER temporal'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'temporal_visibility')\gexec
+{% if script_nodes_enabled | default(true) | bool %}
+SELECT 'CREATE DATABASE {{ pg_execution_plane_database }} OWNER {{ pg_execution_plane_user }}'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ pg_execution_plane_database }}')\gexec
+{% endif %}
 EOSQL

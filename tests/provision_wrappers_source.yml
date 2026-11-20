@@ -1,0 +1,68 @@
+---
+# Static contract: clean_install and update_release cover the four modes
+# (ao_channel x provision_mode) without tearing down the DB PVC.
+
+- name: Assert provision wrapper playbooks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    wrapper_sources:
+      - "{{ playbook_dir }}/../playbooks/clean_install.yml"
+      - "{{ playbook_dir }}/../playbooks/update_release.yml"
+  tasks:
+    - name: Load wrapper playbooks
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ wrapper_sources }}"
+      register: wrapper_slurps
+
+    - name: Decode wrappers
+      ansible.builtin.set_fact:
+        clean_text: "{{ wrapper_slurps.results[0].content | b64decode }}"
+        update_text: "{{ wrapper_slurps.results[1].content | b64decode }}"
+        wrappers_text: "{{ wrapper_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Require clean_install stages and mode
+      ansible.builtin.assert:
+        that:
+          - "'provision_mode: clean' in clean_text"
+          - "'ao_ea_common' in clean_text"
+          - "'ao_ea_postgres' in clean_text"
+          - "'ao_ea_secrets' in clean_text"
+          - "'ao_ea_operator' in clean_text"
+          - "'ao_ea_instance' in clean_text"
+          - "'ao_ea_postconfig' in clean_text"
+          - "'ao_ea_health' in clean_text"
+          - "'ao_ea_teardown' not in clean_text"
+          - "'teardown_app' not in clean_text"
+        fail_msg: >-
+          clean_install.yml must set provision_mode=clean and run preflight
+          through health without teardown.
+
+    - name: Require update_release stages, mode, and operator-first order
+      ansible.builtin.assert:
+        that:
+          - "'provision_mode: update' in update_text"
+          - "'ao_ea_common' in update_text"
+          - "'ao_ea_operator' in update_text"
+          - "'ao_ea_postgres' in update_text"
+          - "'ao_ea_secrets' in update_text"
+          - "'ao_ea_instance' in update_text"
+          - "'ao_ea_postconfig' in update_text"
+          - "'ao_ea_health' in update_text"
+          - "'ao_ea_teardown' not in update_text"
+          - update_text.index('ao_ea_operator') < update_text.index('ao_ea_postgres')
+        fail_msg: >-
+          update_release.yml must set provision_mode=update, keep DB (no
+          teardown), and ensure the operator before postgres refresh.
+
+    - name: Require both wrappers document ao_channel recipes
+      ansible.builtin.assert:
+        that:
+          - "'ao_channel=early-access' in wrappers_text"
+          - "'ao_channel=stable' in wrappers_text"
+          - "'keep DB' in wrappers_text or 'Never deletes' in wrappers_text"
+        fail_msg: >-
+          Wrappers must document early-access and stable ao_channel usage
+          and that the DB PVC is kept.

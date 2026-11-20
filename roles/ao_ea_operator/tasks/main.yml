@@ -1,11 +1,15 @@
 ---
-# Assert the existing AO Operator Subscription. Read-only k8s_info.
-# Never create or patch a Subscription.
+# Ensure the AO Operator is installed for ao_channel.
+# - Clean cluster (no AO Subscription): create Namespace + OperatorGroup +
+#   Subscription, wait for AtLatestKnown + CSV Succeeded.
+# - Existing Subscription: reconcile channel to ao_channel when
+#   operator_manage_channel=true, wait for latest healthy CSV.
+# - Never create a second Subscription.
 
 - name: Run operator ensure guards
   ansible.builtin.include_tasks: guards.yml
 
-- name: Query the existing AO Subscription
+- name: Query and optionally install the AO Operator
   module_defaults:
     group/kubernetes.core.k8s:
       host: "{{ cluster_api }}"
@@ -24,27 +28,8 @@
     - name: Record whether the named Subscription exists
       ansible.builtin.set_fact:
         subscription_exists: "{{ (ao_sub_query.resources | default([])) | length > 0 }}"
-
-    - name: Record named Subscription fields
-      ansible.builtin.set_fact:
-        subscription_channel: "{{ ao_sub_query.resources[0].spec.channel | default('') }}"
-        subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
-        installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
-      when: subscription_exists | bool
-
-    - name: Get the installed ClusterServiceVersion
-      kubernetes.core.k8s_info:
-        api_version: operators.coreos.com/v1alpha1
-        kind: ClusterServiceVersion
-        name: "{{ installed_csv }}"
-        namespace: "{{ operator_ns }}"
-      register: ao_csv_query
-      when: installed_csv | length > 0
-
-    - name: Record CSV phase
-      ansible.builtin.set_fact:
-        csv_phase: "{{ ao_csv_query.resources[0].status.phase | default('') if ((ao_csv_query.resources | default([])) | length > 0) else '' }}"
-      when: installed_csv | length > 0
+        operator_created: false
+        operator_channel_reconciled: false
 
     - name: List Subscriptions cluster-wide
       kubernetes.core.k8s_info:
@@ -55,6 +40,83 @@
     - name: Count AO operator Subscriptions
       ansible.builtin.set_fact:
         ao_subscription_count: "{{ (all_subscriptions.resources | default([]) | map(attribute='spec') | selectattr('name', 'defined') | map(attribute='name') | select('equalto', ao_operator_package) | list) | length }}"
+
+    - name: Refuse duplicate AO Subscriptions
+      ansible.builtin.assert:
+        that:
+          - (ao_subscription_count | int) <= 1
+        fail_msg: >-
+          Found {{ ao_subscription_count }} Subscription(s) for package
+          {{ ao_operator_package }} (want 0 on a clean install or exactly 1).
+          Remove duplicates before re-running. Never create a second
+          Subscription.
+
+    - name: Create the AO Operator on a clean cluster
+      ansible.builtin.include_tasks: create_operator.yml
+      when:
+        - not (subscription_exists | bool)
+        - (ao_subscription_count | int) == 0
+
+    - name: Re-query the named Subscription after optional create
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ operator_subscription_name }}"
+        namespace: "{{ operator_ns }}"
+      register: ao_sub_query
+
+    - name: Record Subscription presence after optional create
+      ansible.builtin.set_fact:
+        subscription_exists: "{{ (ao_sub_query.resources | default([])) | length > 0 }}"
+
+    - name: Record named Subscription fields
+      ansible.builtin.set_fact:
+        subscription_channel: "{{ ao_sub_query.resources[0].spec.channel | default('') }}"
+        subscription_approval: "{{ ao_sub_query.resources[0].spec.installPlanApproval | default('') }}"
+        subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
+        installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
+      when: subscription_exists | bool
+
+    - name: Reconcile existing Subscription channel to ao_channel
+      ansible.builtin.include_tasks: reconcile_channel.yml
+      when:
+        - subscription_exists | bool
+        - not (operator_created | bool)
+
+    - name: Re-query the named Subscription after optional channel reconcile
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ operator_subscription_name }}"
+        namespace: "{{ operator_ns }}"
+      register: ao_sub_query
+      when:
+        - subscription_exists | bool
+        - operator_channel_reconciled | default(false) | bool
+
+    - name: Refresh Subscription fields after channel reconcile
+      ansible.builtin.set_fact:
+        subscription_channel: "{{ ao_sub_query.resources[0].spec.channel | default('') }}"
+        subscription_approval: "{{ ao_sub_query.resources[0].spec.installPlanApproval | default('') }}"
+        subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
+        installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
+      when:
+        - subscription_exists | bool
+        - operator_channel_reconciled | default(false) | bool
+
+    - name: Wait for Subscription AtLatestKnown and CSV Succeeded
+      ansible.builtin.include_tasks: wait_operator_healthy.yml
+      when: subscription_exists | bool
+
+    - name: Refresh AO Subscription count
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+      register: all_subscriptions_after
+
+    - name: Record AO Subscription count after ensure
+      ansible.builtin.set_fact:
+        ao_subscription_count: "{{ (all_subscriptions_after.resources | default([]) | map(attribute='spec') | selectattr('name', 'defined') | map(attribute='name') | select('equalto', ao_operator_package) | list) | length }}"
 
 - name: Assert Subscription channel, CSV, and uniqueness
   ansible.builtin.include_tasks: operator_assert.yml

@@ -52,18 +52,37 @@
         state: present
         definition: "{{ lookup('template', 'service.yml.j2') }}"
 
-    - name: Apply PostgreSQL StatefulSet
+    # force: true replaces the StatefulSet object. Strategic merge on an
+    # existing STS that used a different container name (e.g. postgres vs
+    # postgresql) otherwise keeps BOTH containers → duplicate :5432 and
+    # CrashLoopBackOff. PVCs from volumeClaimTemplates are NOT deleted.
+    - name: Apply PostgreSQL StatefulSet (replace to avoid duplicate containers)
       kubernetes.core.k8s:
         state: present
+        force: true
         definition: "{{ lookup('template', 'statefulset.yml.j2') }}"
+
+    # Updating the STS template does not always replace a stuck/CrashLoop
+    # pod immediately (revision lag). Delete the ordinal pod so the STS
+    # recreates it from the current template. PVC data-ao-postgres-0 stays.
+    #
+    # wait: false is required — with replicas>=1 the StatefulSet recreates
+    # ao-postgres-0 immediately, so wait:true on delete hangs forever.
+    - name: Recreate Postgres pod from the current StatefulSet template
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Pod
+        name: "{{ pg_service_name }}-0"
+        namespace: "{{ db_ns }}"
+        state: absent
+        wait: false
 
     - name: Wait until the PostgreSQL pod is Ready
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Pod
+        name: "{{ pg_service_name }}-0"
         namespace: "{{ db_ns }}"
-        label_selectors:
-          - "app={{ pg_service_name }}"
         wait: true
         wait_sleep: "{{ pg_wait_delay | int }}"
         wait_timeout: "{{ pg_wait_timeout | int }}"
@@ -102,33 +121,61 @@
       ansible.builtin.set_fact:
         pvc_bound: true
 
+    # Base64 the script so passwords/special chars never break bash -lc quoting
+    # inside k8s_exec (which surfaces as a useless "Unknown error").
     - name: Render role and database init command
       ansible.builtin.set_fact:
-        pg_init_roles_cmd: "/bin/bash -lc {{ lookup('template', 'init_roles.sh.j2') | quote }}"
+        pg_init_roles_cmd: >-
+          /bin/bash -lc {{
+            ('echo '
+             ~ (lookup('template', 'init_roles.sh.j2') | b64encode)
+             ~ ' | base64 -d | /bin/bash') | quote
+          }}
       no_log: true
 
     - name: Ensure roles and databases
       kubernetes.core.k8s_exec:
         namespace: "{{ db_ns }}"
         pod: "{{ pg_pod_name }}"
+        container: "{{ pg_container_name }}"
         command: "{{ pg_init_roles_cmd }}"
       register: pg_init_roles
       no_log: true
       changed_when: false
+      retries: "{{ pg_init_retries | int }}"
+      delay: "{{ pg_init_delay | int }}"
+      until: (pg_init_roles.rc | default(pg_init_roles.return_code | default(1))) == 0
 
     - name: Require role init to succeed
       ansible.builtin.assert:
         that:
           - (pg_init_roles.rc | default(pg_init_roles.return_code | default(1))) == 0
-        fail_msg: PostgreSQL role and database init failed (output redacted).
+        fail_msg: >-
+          PostgreSQL role and database init failed after retries (output
+          redacted). Check pod {{ pg_pod_name }} logs in {{ db_ns }}, then
+          re-run ensure_db.
+
+    - name: Render pgcrypto init command
+      ansible.builtin.set_fact:
+        pg_init_pgcrypto_cmd: >-
+          /bin/bash -lc {{
+            ('echo '
+             ~ (lookup('template', 'init_pgcrypto.sh.j2') | b64encode)
+             ~ ' | base64 -d | /bin/bash') | quote
+          }}
+      no_log: true
 
     - name: Ensure pgcrypto as orchestrator
       kubernetes.core.k8s_exec:
         namespace: "{{ db_ns }}"
         pod: "{{ pg_pod_name }}"
-        command: "/bin/bash -lc {{ lookup('template', 'init_pgcrypto.sh.j2') | quote }}"
+        container: "{{ pg_container_name }}"
+        command: "{{ pg_init_pgcrypto_cmd }}"
       register: pg_init_pgcrypto
       changed_when: false
+      retries: "{{ pg_init_retries | int }}"
+      delay: "{{ pg_init_delay | int }}"
+      until: (pg_init_pgcrypto.rc | default(pg_init_pgcrypto.return_code | default(1))) == 0
 
     - name: Require pgcrypto as orchestrator
       ansible.builtin.assert:

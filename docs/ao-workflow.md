@@ -17,7 +17,7 @@ tickets.
    the Integration ID for `aap_job_template` nodes.
 3. Stable AO worker has `APP_SCRIPT_NODES_ENABLED=true` (Execution
    Plane enabled, or the supported admin path for that install).
-4. PDE AO-05 Kubernetes credential and PG password credentials attached
+4. OpenShift instance Kubernetes credential and PG password credentials attached
    to every JT.
 
 ## Node order
@@ -26,12 +26,12 @@ Pass the **same extra_vars map** into every `aap_job_template` node.
 
 | # | Node | Target | Role |
 |---|---|---|---|
-| 1 | Script | — | Normalize inputs. Set `ao_channel` to the workflow input or `"early-access"`. Pass through the fixed PDE vars. No secrets. |
+| 1 | Script | — | Normalize inputs. Set `ao_channel` to the workflow input or `"early-access"`. Pass through the fixed OpenShift vars. No secrets. |
 | 2 | `aap_job_template` | `ea-preflight` | API, CatalogSource, channel available |
 | 3 | `aap_job_template` | `ea-teardown-app` | Delete EA CR; keep DB ns / PVC / StatefulSet |
 | 4 | `aap_job_template` | `ea-ensure-db` | Ensure PG; never delete the PVC |
 | 5 | `aap_job_template` | `ea-ensure-secrets` | Recreate app-ns PG Secrets from AAP creds |
-| 6 | `aap_job_template` | `ea-ensure-operator` | Assert existing Subscription `channel == ao_channel` |
+| 6 | `aap_job_template` | `ea-ensure-operator` | Install operator if missing; else assert `channel == ao_channel` |
 | 7 | `aap_job_template` | `ea-apply-ao-cr` | Apply `AutomationOrchestrator` (BYO PG + Route) |
 | 8 | `aap_job_template` | `ea-postconfig` | Script nodes on EA, or skip (see below) |
 | 9 | `aap_job_template` | `ea-health-check` | Ready, Deployments, Route, HTTPS `/health` |
@@ -48,13 +48,13 @@ into the workflow (or each JT extra_vars) and override only
 `ao_channel` / `script_nodes_enabled` per run:
 
 ```yaml
-cluster_api: "https://api.pde-ao-05.rnil.p3.openshiftapps.com:443"
-app_ns: syntarogation-ao-nov
-db_ns: syntarogation-ao-nov-db
+cluster_api: "https://api.OpenShift-instance.rnil.p3.openshiftapps.com:443"
+app_ns: syntarogation-ao
+db_ns: syntarogation-ao-db
 ao_name: my-orchestrator
-pg_service_host: ao-postgres.syntarogation-ao-nov-db.svc
+pg_service_host: ao-postgres.syntarogation-ao-db.svc
 pg_service_name: ao-postgres
-route_host: syntarogation-ao-nov.apps.rosa.pde-ao-05.rnil.p3.openshiftapps.com
+route_host: syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com
 ao_channel: early-access
 catalog_source: redhat-operators
 catalog_ns: openshift-marketplace
@@ -73,16 +73,32 @@ map or in script-node variables.
 | | |
 |---|---|
 | Default | `early-access` (inventory + script node 1) |
-| Override | Workflow input / extra-var `ao_channel` (example: `stable`) |
-| Constraint | `ea-ensure-operator` asserts the **existing** Subscription channel. It does not patch OLM. If the cluster is still `early-access` and you pass `ao_channel=stable`, that JT fails clearly. Change the Subscription outside this workflow first, or leave the default. |
+| Override | Workflow input / extra-var `ao_channel` (`early-access` or `stable`) |
+| Behaviour | `ea-ensure-operator` reconciles the Subscription to `ao_channel` (`operator_manage_channel=true`) and waits for `AtLatestKnown`. For full local/orchestration runs prefer `playbooks/update_release.yml` or `playbooks/clean_install.yml` with the same `-e ao_channel=…`. |
 
-### Postconfig skip
+### Local / AAP full-run recipes
 
-`ea-postconfig` needs Execution Plane DB Secret
-`{ao_name}-execution-plane-database` (or EP already enabled). On a
-stock weekly provision that Secret is not created. Either create it
-before node 8, or set `script_nodes_enabled: false` in the extra_vars
-map so postconfig is a no-op. Details: [aap-setup.md](aap-setup.md).
+| Goal | Command |
+|---|---|
+| Update stable (keep DB + CR) | `update_release.yml -e ao_channel=stable` |
+| Update early-access (keep DB + CR) | `update_release.yml -e ao_channel=early-access` |
+| Clean install stable | `clean_install.yml -e ao_channel=stable` |
+| Clean install early-access | `clean_install.yml -e ao_channel=early-access` |
+| Weekly wipe app, keep DB | `teardown_app.yml` then `update_release.yml` |
+
+### Script nodes / Execution Plane
+
+With `script_nodes_enabled: true` (default):
+
+- `ea-ensure-db` creates PG role/database `execution_plane`
+- `ea-ensure-secrets` applies Secret `{ao_name}-execution-plane-database`
+- `ea-postconfig` sets `ENABLE_EXECUTION_PLANE` and waits for
+  `APP_SCRIPT_NODES_ENABLED=true` on the worker
+
+Pass `pg_execution_plane_password` (or `vault_pg_execution_plane_password`)
+via AAP credentials alongside the other PG passwords. Set
+`script_nodes_enabled: false` only to skip EP entirely.
+Details: [aap-setup.md](aap-setup.md).
 
 ## Do not log secrets
 

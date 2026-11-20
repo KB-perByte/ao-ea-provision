@@ -1,0 +1,10 @@
+---
+# Galaxy requirements for ao-ea-provision EE.
+# redhat.openshift is Automation Hub–only (not on galaxy.ansible.com).
+# Build with ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN (see README).
+
+collections:
+  - name: kubernetes.core
+    version: ">=5.0.0"
+  - name: redhat.openshift
+    version: ">=1.0.0"

@@ -1,11 +1,12 @@
 ---
-# Keep app_ns. Delete AutomationOrchestrator CR, wait for ownerRef GC.
-# Never delete db_ns, the DB PVC, or the DB StatefulSet.
+# Keep app_ns when it exists. Delete AutomationOrchestrator CR, wait for
+# ownerRef GC. Never delete db_ns, the DB PVC, or the DB StatefulSet.
+# Clean cluster (no app_ns / no CR): no-op success.
 
 - name: Run teardown guards
   ansible.builtin.include_tasks: guards.yml
 
-- name: Delete the AO CR and wait for GC
+- name: Delete the AO CR and wait for GC when app_ns exists
   module_defaults:
     group/kubernetes.core.k8s:
       host: "{{ cluster_api }}"
@@ -13,6 +14,25 @@
       kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
       validate_certs: "{{ k8s_validate_certs }}"
   block:
+    - name: Check whether the app namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ teardown_target_ns }}"
+      register: teardown_app_ns
+
+    - name: Record app namespace presence
+      ansible.builtin.set_fact:
+        teardown_app_ns_present: "{{ (teardown_app_ns.resources | default([])) | length > 0 }}"
+
+    - name: Skip CR delete when app namespace is missing
+      ansible.builtin.debug:
+        msg: >-
+          Namespace {{ teardown_target_ns }} is absent (clean target).
+          Teardown is a no-op; ensure_* playbooks will create a fresh
+          install.
+      when: not (teardown_app_ns_present | bool)
+
     - name: Delete AutomationOrchestrator CR if present
       kubernetes.core.k8s:
         api_version: aap.ansible.com/v1alpha1
@@ -22,6 +42,7 @@
         state: absent
         wait: true
         wait_timeout: "{{ teardown_wait_timeout | int }}"
+      when: teardown_app_ns_present | bool
 
     - name: Wait until operator-owned Deployments in app_ns are gone
       kubernetes.core.k8s_info:
@@ -35,6 +56,7 @@
       until: (teardown_leftover_deployments.resources | default([])) | length == 0
       retries: "{{ ((teardown_wait_timeout | int) / (teardown_wait_delay | int)) | int }}"
       delay: "{{ teardown_wait_delay | int }}"
+      when: teardown_app_ns_present | bool
 
 - name: Mark teardown complete
   ansible.builtin.set_fact:
@@ -47,3 +69,4 @@
       ao_name: "{{ ao_name }}"
       app_ns: "{{ app_ns }}"
       db_ns: "{{ db_ns }}"
+      teardown_app_ns_present: "{{ teardown_app_ns_present | default(false) }}"

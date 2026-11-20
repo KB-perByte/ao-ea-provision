@@ -1,0 +1,9 @@
+# PEP 508 requirements for kubernetes.core (k8s / k8s_info / k8s_exec)
+# and ansible.builtin.uri health probes.
+# https://docs.ansible.com/projects/builder/en/latest/definition/#dependencies
+kubernetes>=28.1.0
+PyYAML>=6.0
+requests>=2.31.0
+jsonpatch>=1.33
+# Still useful for some OpenShift resource helpers with kubernetes.core
+openshift>=0.13.2

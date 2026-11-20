@@ -1,39 +1,63 @@
 ---
-# Assert script nodes are effective on the worker. Callers set
-# worker_script_nodes_enabled (from k8s_info or a local mock).
-# Never patches the worker Deployment; operator SSA would revert it.
+# Assert script nodes are effective on the worker — or fail with a short,
+# actionable message. Never patches the worker Deployment (operator SSA).
 
-- name: Require APP_SCRIPT_NODES_ENABLED on the worker
-  ansible.builtin.assert:
-    that:
-      - worker_script_nodes_enabled | bool
-    fail_msg: >-
-      {{ script_nodes_env_name }} is not true on Deployment
-      {{ ao_worker_deploy_name }} in {{ app_ns }}
-      (value={{ worker_script_nodes_value | default('') }},
-      worker_exists={{ worker_exists | default(false) }},
-      ep_enabled={{ ep_enabled | default(false) }},
-      cr_has_ep_field={{ cr_has_ep_field | default(false) }},
-      ep_db_secret_present={{ ep_db_secret_present | default(false) }},
-      ep_db_secret_keys_ok={{ ep_db_secret_keys_ok | default(false) }}).
-      The operator sets {{ script_nodes_env_name }}=true on the worker
-      only when Execution Plane is enabled. AutomationOrchestrator has
-      no public executionPlane or scriptNodes CR field. Reconciler-safe
-      path: ConfigMap {{ ao_admin_settings_name }} with
-      {{ ep_enable_key }}=true AND Secret {{ ao_ep_db_secret_name }}
-      (keys database, username, password) plus an Execution Plane
-      database on the BYO PostgreSQL. Do not patch the worker
-      Deployment env; operator Server-Side Apply will overwrite it.
-      This playbook will not apply a doomed Deployment env patch.
-      Create the EP database and Secret (not part of ea-ensure-db /
-      ea-ensure-secrets today), then re-run ea-postconfig.
-    success_msg: >-
-      {{ script_nodes_env_name }}=true on {{ ao_worker_deploy_name }}
-      (operator-managed; Execution Plane enabled).
-
-- name: Mark script nodes effective
+- name: Mark script nodes effective when the worker already has them
   ansible.builtin.set_fact:
     script_nodes_effective: true
+  when: worker_script_nodes_enabled | bool
+
+- name: Explain success
+  ansible.builtin.debug:
+    msg: >-
+      Script nodes OK: {{ script_nodes_env_name }}=true on
+      {{ ao_worker_deploy_name }} in {{ app_ns }} (Execution Plane enabled).
+  when: script_nodes_effective | default(false) | bool
+
+- name: Fail gracefully when Execution Plane prerequisites are missing
+  ansible.builtin.fail:
+    msg: |
+      Script nodes cannot be enabled on {{ app_ns }}/{{ ao_name }}.
+
+      Why: the operator only sets {{ script_nodes_env_name }}=true when
+      Execution Plane is enabled. Prerequisites are missing:
+        - EP database Secret {{ ao_ep_db_secret_name }}: {{ 'present' if (ep_db_secret_present | bool) else 'MISSING' }}
+        - Secret keys database/username/password: {{ 'ok' if (ep_db_secret_keys_ok | bool) else 'incomplete/missing' }}
+        - ENABLE_EXECUTION_PLANE on {{ ao_admin_settings_name }}: {{ 'true' if (ep_enabled | bool) else 'false' }}
+        - Worker {{ ao_worker_deploy_name }} env: {{ worker_script_nodes_value | default('(unset)') }}
+
+      What to do:
+        1) Stock weekly / no EP yet — skip this step:
+             ansible-playbook playbooks/postconfig.yml \
+               -e @secrets/local.extra_vars.yml \
+               -e script_nodes_enabled=false
+           (or set script_nodes_enabled: false in local.extra_vars.yml)
+        2) To enable script nodes — create the EP database on BYO Postgres,
+           create Secret {{ ao_ep_db_secret_name }} in {{ app_ns }}, then
+           re-run ea-postconfig.
+
+      Note: this playbook will not patch the worker Deployment; the
+      operator would overwrite it via Server-Side Apply.
+  when:
+    - not (script_nodes_effective | default(false) | bool)
+    - not (ep_db_secret_present | bool) or not (ep_db_secret_keys_ok | bool)
+
+- name: Fail gracefully when EP was requested but worker env never flipped
+  ansible.builtin.fail:
+    msg: |
+      Script nodes still not effective on {{ app_ns }}/{{ ao_worker_deploy_name }}.
+
+      Execution Plane prerequisites looked OK, but
+      {{ script_nodes_env_name }} is still {{ worker_script_nodes_value | default('(unset)') }}
+      after waiting for the operator.
+
+      Check: operator logs, ConfigMap {{ ao_admin_settings_name }},
+      and that Secret {{ ao_ep_db_secret_name }} is valid. Or skip with
+      -e script_nodes_enabled=false.
+  when:
+    - not (script_nodes_effective | default(false) | bool)
+    - ep_db_secret_present | bool
+    - ep_db_secret_keys_ok | bool
 
 - name: Show postconfig result
   ansible.builtin.debug:
@@ -42,7 +66,6 @@
       script_nodes_enabled: "{{ script_nodes_enabled }}"
       worker_script_nodes_enabled: "{{ worker_script_nodes_enabled }}"
       ep_enabled: "{{ ep_enabled }}"
-      cr_has_ep_field: "{{ cr_has_ep_field }}"
       ao_name: "{{ ao_name }}"
       app_ns: "{{ app_ns }}"
-      ao_worker_deploy_name: "{{ ao_worker_deploy_name }}"
+  when: script_nodes_effective | default(false) | bool
