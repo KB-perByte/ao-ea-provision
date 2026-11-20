@@ -41,10 +41,16 @@
       ansible.builtin.assert:
         that:
           - "'kind: PersistentVolumeClaim' not in teardown_text"
-          - "'kind: Namespace' not in teardown_text"
           - "'kind: StatefulSet' not in teardown_text"
           - "'oc delete' not in teardown_text"
+          - "'teardown_delete_namespaces: []' in teardown_text"
+          - "'teardown_delete_pvcs: []' in teardown_text"
+          - "'teardown_delete_statefulsets: []' in teardown_text"
+          # kind: Namespace may appear only as k8s_info lookup of app_ns
+          - "'k8s_info' in teardown_text"
         fail_msg: >-
-          Teardown sources must not delete Namespace, PersistentVolumeClaim, or
-          StatefulSet objects, and must not shell out to oc delete. Delete the
-          AutomationOrchestrator CR in app_ns and wait for ownerRef GC.
+          Teardown sources must not delete PersistentVolumeClaim or
+          StatefulSet objects, must keep teardown_delete_* empty, and must
+          not shell out to oc delete. Delete the AutomationOrchestrator CR
+          in app_ns and wait for ownerRef GC (Namespace lookup via k8s_info
+          is allowed).

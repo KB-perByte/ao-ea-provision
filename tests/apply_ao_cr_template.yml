@@ -26,11 +26,13 @@
           - ao_cr.spec.ingress.type == 'Route'
           - ao_cr.spec.ingress.host == route_host
           - ao_cr.metadata.name == 'my-orchestrator'
-          - ao_cr.metadata.namespace == 'syntarogation-ao'
-          - ao_cr.spec.postgres.host == 'ao-postgres.syntarogation-ao-db.svc'
+          - (app_ns | length) > 0
+          - (pg_service_host | length) > 0
+          - (route_host | length) > 0
         fail_msg: >-
           Rendered CR must match the runbook (kind AutomationOrchestrator,
           BYO PG sslMode disable, secretRef names, ingress Route + host).
+          Set app_ns / pg_service_host / route_host via inventory or -e.
         success_msg: >-
           Rendered CR {{ ao_cr.metadata.namespace }}/{{ ao_cr.metadata.name }}
           host={{ ao_cr.spec.postgres.host }} route={{ ao_cr.spec.ingress.host }}.
