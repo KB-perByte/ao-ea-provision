@@ -12,6 +12,10 @@ pg_service_host: ao-postgres.syntarogation-ao-db.svc
 pg_service_name: ao-postgres
 route_host: ""
 ao_channel: early-access
+# Script step images used by AO's database seeder and runtime. These are
+# passed to the Operator through Subscription.spec.config.env at install time.
+ao_script_python_image_reference: registry.redhat.io/ansible-automation-platform/ao-python-rhel9:2026.8
+ao_script_bash_image_reference: registry.redhat.io/ansible-automation-platform/ao-bash-rhel9:2026.8
 catalog_source: redhat-operators
 catalog_ns: openshift-marketplace
 operator_ns: automation-orchestrator-operator-system

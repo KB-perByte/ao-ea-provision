@@ -22,6 +22,7 @@
     subscription_state: "{{ ao_sub_healthy_wait.resources[0].status.state }}"
     subscription_channel: "{{ ao_sub_healthy_wait.resources[0].spec.channel | default('') }}"
     subscription_approval: "{{ ao_sub_healthy_wait.resources[0].spec.installPlanApproval | default('') }}"
+    subscription_config_env: "{{ ao_sub_healthy_wait.resources[0].spec.config.env | default([]) }}"
 
 - name: Wait until the ClusterServiceVersion Succeeded
   kubernetes.core.k8s_info:
@@ -39,3 +40,56 @@
 - name: Record CSV phase after healthy wait
   ansible.builtin.set_fact:
     csv_phase: "{{ ao_csv_healthy_wait.resources[0].status.phase }}"
+
+- name: Wait for the Operator manager Deployment to finish its rollout
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ ao_operator_manager_deployment_name }}"
+    namespace: "{{ operator_ns }}"
+  register: ao_operator_manager_wait
+  until: >-
+    (ao_operator_manager_wait.resources | default([]) | length > 0)
+    and ((ao_operator_manager_wait.resources[0].status.observedGeneration | default(0) | int)
+         >= (ao_operator_manager_wait.resources[0].metadata.generation | default(1) | int))
+    and ((ao_operator_manager_wait.resources[0].status.updatedReplicas | default(0) | int)
+         >= (ao_operator_manager_wait.resources[0].spec.replicas | default(1) | int))
+    and ((ao_operator_manager_wait.resources[0].status.availableReplicas | default(0) | int)
+         >= (ao_operator_manager_wait.resources[0].spec.replicas | default(1) | int))
+  retries: "{{ ((operator_wait_timeout | int) / (operator_wait_delay | int)) | int }}"
+  delay: "{{ operator_wait_delay | int }}"
+
+- name: Record the Operator manager environment
+  ansible.builtin.set_fact:
+    operator_manager_env: >-
+      {{ ao_operator_manager_wait.resources[0].spec.template.spec.containers
+         | map(attribute='env') | select('defined') | flatten }}
+
+- name: Require the Subscription to carry the requested script image overrides
+  ansible.builtin.assert:
+    that:
+      - >-
+        (subscription_config_env | selectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_PYTHON')
+         | map(attribute='value') | first | default('')) == ao_script_python_image_reference
+      - >-
+        (subscription_config_env | selectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_BASH')
+         | map(attribute='value') | first | default('')) == ao_script_bash_image_reference
+    fail_msg: >-
+      The AO Operator Subscription is missing the requested script image
+      overrides. Expected RELATED_IMAGE_SCRIPT_PYTHON={{ ao_script_python_image_reference }}
+      and RELATED_IMAGE_SCRIPT_BASH={{ ao_script_bash_image_reference }}.
+
+- name: Require the running Operator manager to receive the script image overrides
+  ansible.builtin.assert:
+    that:
+      - >-
+        (operator_manager_env | selectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_PYTHON')
+         | map(attribute='value') | first | default('')) == ao_script_python_image_reference
+      - >-
+        (operator_manager_env | selectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_BASH')
+         | map(attribute='value') | first | default('')) == ao_script_bash_image_reference
+    fail_msg: >-
+      OLM did not apply the script image overrides to Deployment
+      {{ ao_operator_manager_deployment_name }} in {{ operator_ns }}.
+      Expected RELATED_IMAGE_SCRIPT_PYTHON={{ ao_script_python_image_reference }}
+      and RELATED_IMAGE_SCRIPT_BASH={{ ao_script_bash_image_reference }}.

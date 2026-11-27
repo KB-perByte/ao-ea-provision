@@ -81,8 +81,16 @@ Override per launch only when needed.
 | `catalog_ns` | `openshift-marketplace` | CatalogSource namespace |
 | `operator_ns` | `automation-orchestrator-operator-system` | Existing operator install |
 | `operator_subscription_name` | `automation-orchestrator-operator` | Existing Subscription |
+| `ao_script_python_image_reference` | `registry.redhat.io/ansible-automation-platform/ao-python-rhel9:2026.8` | Injected into the OLM Subscription for Python script steps |
+| `ao_script_bash_image_reference` | `registry.redhat.io/ansible-automation-platform/ao-bash-rhel9:2026.8` | Injected into the OLM Subscription for Bash script steps |
 | `script_nodes_enabled` | `true` | See [Postconfig / script nodes](#postconfig--script-nodes) |
 | `pg_pvc_name` | `data-ao-postgres-0` | Never delete |
+
+`ea-ensure-operator` applies these image references through
+`Subscription.spec.config.env`, waits for the Operator manager rollout, and
+fails before AO reconciliation if the live manager Deployment does not carry
+both values. The refs can be changed per launch with extra-vars when the lab
+moves to another published image version.
 
 Credential extra-vars (values from AAP credentials, never committed):
 

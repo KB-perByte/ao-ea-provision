@@ -1,24 +1,37 @@
 ---
-# Align an existing Subscription to ao_channel. Never create a second
-# Subscription. Patches channel (+ installPlanApproval) only when needed.
+# Align an existing Subscription to ao_channel and ensure the script image
+# overrides are present. Never create a second Subscription. Preserve any
+# unrelated Subscription environment settings.
 
-- name: Skip channel reconcile when management is disabled
+- name: Preserve unrelated Subscription environment settings
+  ansible.builtin.set_fact:
+    ao_operator_config_env: >-
+      {{
+        (subscription_config_env | default([])
+         | rejectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_PYTHON')
+         | rejectattr('name', 'equalto', 'RELATED_IMAGE_SCRIPT_BASH')
+         | list)
+        + ao_script_image_env
+      }}
+
+- name: Select desired channel and approval while honoring channel management
+  ansible.builtin.set_fact:
+    operator_subscription_target_channel: "{{ ao_channel if (operator_manage_channel | bool) else subscription_channel }}"
+    operator_subscription_target_approval: "{{ operator_install_plan_approval if (operator_manage_channel | bool) else subscription_approval }}"
+
+- name: Explain when channel management is disabled
   ansible.builtin.debug:
     msg: >-
       operator_manage_channel=false; leaving Subscription channel
-      {{ subscription_channel }} unchanged (ao_channel={{ ao_channel }}).
+      {{ subscription_channel }} unchanged (ao_channel={{ ao_channel }}),
+      while ensuring the script image overrides are configured.
   when: not (operator_manage_channel | bool)
 
-- name: Reconcile Subscription channel and installPlanApproval to ao_channel
+- name: Reconcile Subscription channel and script image overrides
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('template', 'subscription.yml.j2') }}"
-  when:
-    - operator_manage_channel | bool
-    - subscription_exists | bool
-    - >-
-        (subscription_channel | default('')) != ao_channel
-        or (subscription_approval | default('')) != operator_install_plan_approval
+  when: subscription_exists | bool
 
 - name: Mark that this run reconciled the Subscription channel
   ansible.builtin.set_fact:
