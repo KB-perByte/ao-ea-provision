@@ -1,6 +1,6 @@
 ---
 # One poll of {{ ao_name }}-worker. Callers loop until the operator
-# sets APP_SCRIPT_NODES_ENABLED or retries are exhausted.
+# sets APP_SCRIPT_NODES_ENABLED and/or APP_EP_API_URL, or retries end.
 
 - name: Get the AO worker Deployment
   kubernetes.core.k8s_info:

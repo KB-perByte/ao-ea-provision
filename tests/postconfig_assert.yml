@@ -37,3 +37,31 @@
         success_msg: >-
           script_nodes_effective={{ script_nodes_effective }}
           on {{ ao_name }}-worker.
+
+- name: Exercise postconfig assert with early-access APP_EP_API_URL signal
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    worker_exists: true
+    worker_script_nodes_enabled: true
+    worker_script_nodes_value: ""
+    worker_ep_api_url_value: "https://my-orchestrator-execution-plane-api.example.svc:8443"
+    ep_enabled: true
+    cr_has_ep_field: false
+    ep_db_secret_present: true
+    ep_db_secret_keys_ok: true
+  tasks:
+    - name: Run postconfig script-nodes assert (EP URL only)
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig
+        tasks_from: script_nodes_assert
+
+    - name: Require script_nodes_effective from APP_EP_API_URL
+      ansible.builtin.assert:
+        that:
+          - script_nodes_effective | bool
+        fail_msg: >-
+          Early-access operator signal APP_EP_API_URL must count as
+          script_nodes_effective even when APP_SCRIPT_NODES_ENABLED is unset.
+        success_msg: APP_EP_API_URL-only path sets script_nodes_effective.

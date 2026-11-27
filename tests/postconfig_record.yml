@@ -71,3 +71,38 @@
         success_msg: >-
           worker_script_nodes_enabled=false when the operator has not
           set the env.
+
+- name: Treat APP_EP_API_URL as early-access EP success signal
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    worker_query:
+      resources:
+        - spec:
+            template:
+              spec:
+                containers:
+                  - name: worker
+                    env:
+                      - name: APP_EP_API_URL
+                        value: "https://my-orchestrator-execution-plane-api.example.svc:8443"
+  tasks:
+    - name: Record worker env from mock with EP API URL only
+      ansible.builtin.include_role:
+        name: ao_ea_postconfig
+        tasks_from: record_worker_env
+
+    - name: Require detection via APP_EP_API_URL
+      ansible.builtin.assert:
+        that:
+          - worker_exists | bool
+          - worker_script_nodes_enabled | bool
+          - worker_ep_api_url_present | bool
+          - worker_script_nodes_value | length == 0
+        fail_msg: >-
+          Early-access operators that set APP_EP_API_URL without
+          APP_SCRIPT_NODES_ENABLED must still count as enabled.
+        success_msg: >-
+          Detected APP_EP_API_URL={{ worker_ep_api_url_value }} as EP
+          effective (APP_SCRIPT_NODES_ENABLED unset).

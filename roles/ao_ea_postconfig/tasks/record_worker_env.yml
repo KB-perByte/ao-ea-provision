@@ -1,6 +1,8 @@
 ---
 # Derive worker_exists / worker_script_nodes_enabled from worker_query
 # (k8s_info Deployment or a local mock).
+# Effective when APP_SCRIPT_NODES_ENABLED=true OR APP_EP_API_URL is set
+# (early-access operator may omit the former while EP is running).
 
 - name: Record whether the worker Deployment exists
   ansible.builtin.set_fact:
@@ -20,6 +22,15 @@
   ansible.builtin.set_fact:
     worker_script_nodes_value: "{{ (worker_env | selectattr('name', 'defined') | selectattr('name', 'equalto', script_nodes_env_name) | map(attribute='value', default='') | list | first | default('')) | string }}"
 
-- name: Record whether the operator enabled script nodes on the worker
+- name: Record APP_EP_API_URL from worker env
   ansible.builtin.set_fact:
-    worker_script_nodes_enabled: "{{ (worker_script_nodes_value | trim | lower) in ['true', '1', 'yes'] }}"
+    worker_ep_api_url_value: "{{ (worker_env | selectattr('name', 'defined') | selectattr('name', 'equalto', ep_api_url_env_name) | map(attribute='value', default='') | list | first | default('')) | string }}"
+
+- name: Record whether the operator enabled script nodes / EP on the worker
+  ansible.builtin.set_fact:
+    worker_script_nodes_flag: "{{ (worker_script_nodes_value | trim | lower) in ['true', '1', 'yes'] }}"
+    worker_ep_api_url_present: "{{ (worker_ep_api_url_value | default('') | trim | length) > 0 }}"
+
+- name: Combine worker EP effectiveness signals
+  ansible.builtin.set_fact:
+    worker_script_nodes_enabled: "{{ (worker_script_nodes_flag | bool) or (worker_ep_api_url_present | bool) }}"

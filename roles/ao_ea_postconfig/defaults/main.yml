@@ -1,7 +1,9 @@
 ---
-# Operator sets APP_SCRIPT_NODES_ENABLED on {{ ao_name }}-worker only
-# when Execution Plane is enabled. EP is not a public CR field; the
-# reconciler-safe opt-in is ConfigMap {{ ao_name }}-admin-settings.
+# When Execution Plane is enabled the operator injects worker signals.
+# Newer builds set APP_SCRIPT_NODES_ENABLED=true; early-access CSVs may
+# only set APP_EP_API_URL (plus ENABLE_EXECUTION_PLANE via admin-settings
+# envFrom). Either is enough for script_nodes_effective. EP is not a
+# public CR field; opt-in is ConfigMap {{ ao_name }}-admin-settings.
 
 k8s_validate_certs: true
 
@@ -14,6 +16,7 @@ ao_admin_settings_name: "{{ ao_name }}-{{ ao_admin_settings_suffix }}"
 ao_ep_db_secret_name: "{{ ao_name }}-{{ ao_ep_db_secret_suffix }}"
 
 script_nodes_env_name: APP_SCRIPT_NODES_ENABLED
+ep_api_url_env_name: APP_EP_API_URL
 ep_enable_key: ENABLE_EXECUTION_PLANE
 ep_db_secret_key: EXECUTION_PLANE_DATABASE_SECRET
 ep_db_required_keys:

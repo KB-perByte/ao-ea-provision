@@ -10,8 +10,10 @@
 - name: Explain success
   ansible.builtin.debug:
     msg: >-
-      Script nodes OK: {{ script_nodes_env_name }}=true on
-      {{ ao_worker_deploy_name }} in {{ app_ns }} (Execution Plane enabled).
+      Script nodes / Execution Plane OK on {{ ao_worker_deploy_name }}
+      in {{ app_ns }}:
+      {{ script_nodes_env_name }}={{ worker_script_nodes_value | default('(unset)') }},
+      {{ ep_api_url_env_name }}={{ worker_ep_api_url_value | default('(unset)') }}.
   when: script_nodes_effective | default(false) | bool
 
 - name: Fail gracefully when Execution Plane prerequisites are missing
@@ -45,15 +47,19 @@
 - name: Fail gracefully when EP was requested but worker env never flipped
   ansible.builtin.fail:
     msg: |
-      Script nodes still not effective on {{ app_ns }}/{{ ao_worker_deploy_name }}.
+      Script nodes / Execution Plane still not effective on
+      {{ app_ns }}/{{ ao_worker_deploy_name }}.
 
-      Execution Plane prerequisites looked OK, but
-      {{ script_nodes_env_name }} is still {{ worker_script_nodes_value | default('(unset)') }}
-      after waiting for the operator.
+      Prerequisites looked OK, but after waiting for the operator neither
+      signal was present:
+        - {{ script_nodes_env_name }}={{ worker_script_nodes_value | default('(unset)') }}
+        - {{ ep_api_url_env_name }}={{ worker_ep_api_url_value | default('(unset)') }}
 
-      Check: operator logs, ConfigMap {{ ao_admin_settings_name }},
-      and that Secret {{ ao_ep_db_secret_name }} is valid. Or skip with
-      -e script_nodes_enabled=false.
+      Newer operators set {{ script_nodes_env_name }}=true; some early-access
+      builds only set {{ ep_api_url_env_name }} when EP is enabled — either
+      counts. Check operator logs, ConfigMap {{ ao_admin_settings_name }},
+      Deployments {{ ao_name }}-execution-plane-*, and Secret
+      {{ ao_ep_db_secret_name }}. Or skip with -e script_nodes_enabled=false.
   when:
     - not (script_nodes_effective | default(false) | bool)
     - ep_db_secret_present | bool

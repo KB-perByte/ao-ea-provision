@@ -45,6 +45,7 @@
           - "'script_nodes_effective' in postconfig_text"
           - "'script_nodes_enabled' in postconfig_text"
           - "'APP_SCRIPT_NODES_ENABLED' in postconfig_text"
+          - "'APP_EP_API_URL' in postconfig_text"
           - "'ENABLE_EXECUTION_PLANE' in postconfig_text"
           - "'admin-settings' in postconfig_text"
           - "'execution-plane-database' in postconfig_text"
