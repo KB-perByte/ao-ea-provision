@@ -1,0 +1,26 @@
+---
+# Cluster-free destroy guard coverage. Does not call k8s.
+# Negative (must fail): ansible-playbook tests/teardown_full_guards.yml
+# Positive: ansible-playbook tests/teardown_full_guards.yml \
+#             -e destroy_confirm=DESTROY-AO-AND-DB
+
+- name: Exercise destroy guards without a cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run destroy guards
+      ansible.builtin.include_role:
+        name: ao_ea_destroy
+        tasks_from: guards
+
+    - name: Require fail-closed destroy_completed
+      ansible.builtin.assert:
+        that:
+          - destroy_completed is defined
+          - not (destroy_completed | bool)
+          - (destroy_confirm | string) == 'DESTROY-AO-AND-DB'
+        fail_msg: >-
+          destroy_completed must be false until cluster destroy finishes;
+          destroy_confirm must equal DESTROY-AO-AND-DB.
+        success_msg: Destroy confirm accepted; destroy_completed false until done.

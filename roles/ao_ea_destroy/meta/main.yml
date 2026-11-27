@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  role_name: ao_ea_destroy
+  description: >-
+    Destructive full teardown of AO app_ns and BYO PostgreSQL db_ns
+    (requires explicit destroy_confirm)
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

@@ -1,0 +1,151 @@
+---
+# Destructive: AO CR (+ GC) then BYO PostgreSQL StatefulSet + PVC, then
+# optional Namespaces. Requires destroy_confirm={{ destroy_confirm_phrase }}.
+
+- name: Run destroy guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Destroy AO app then BYO PostgreSQL
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Check whether the app namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ app_ns }}"
+      register: destroy_app_ns
+
+    - name: Record app namespace presence
+      ansible.builtin.set_fact:
+        destroy_app_ns_present: "{{ (destroy_app_ns.resources | default([])) | length > 0 }}"
+
+    - name: Delete AutomationOrchestrator CR if present
+      kubernetes.core.k8s:
+        api_version: aap.ansible.com/v1alpha1
+        kind: AutomationOrchestrator
+        name: "{{ ao_name }}"
+        namespace: "{{ app_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ destroy_wait_timeout | int }}"
+      when: destroy_app_ns_present | bool
+
+    - name: Wait until operator-owned Deployments in app_ns are gone
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ app_ns }}"
+        label_selectors:
+          - "app.kubernetes.io/instance={{ ao_name }}"
+          - "app.kubernetes.io/managed-by=automation-orchestrator-operator"
+      register: destroy_leftover_deployments
+      until: (destroy_leftover_deployments.resources | default([])) | length == 0
+      retries: "{{ ((destroy_wait_timeout | int) / (destroy_wait_delay | int)) | int }}"
+      delay: "{{ destroy_wait_delay | int }}"
+      when: destroy_app_ns_present | bool
+
+    - name: Mark app destroy stage done
+      ansible.builtin.set_fact:
+        destroy_app_done: true
+
+    - name: Check whether the DB namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ db_ns }}"
+      register: destroy_db_ns
+
+    - name: Record DB namespace presence
+      ansible.builtin.set_fact:
+        destroy_db_ns_present: "{{ (destroy_db_ns.resources | default([])) | length > 0 }}"
+
+    - name: Delete PostgreSQL StatefulSet
+      kubernetes.core.k8s:
+        api_version: apps/v1
+        kind: StatefulSet
+        name: "{{ pg_service_name }}"
+        namespace: "{{ db_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ destroy_wait_timeout | int }}"
+      when: destroy_db_ns_present | bool
+
+    - name: Delete PostgreSQL Service
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Service
+        name: "{{ pg_service_name }}"
+        namespace: "{{ db_ns }}"
+        state: absent
+      when: destroy_db_ns_present | bool
+
+    - name: Delete PostgreSQL PVC (data volume)
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        name: "{{ pg_pvc_name }}"
+        namespace: "{{ db_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ destroy_wait_timeout | int }}"
+      when: destroy_db_ns_present | bool
+
+    - name: Delete PostgreSQL credentials Secret in db_ns if present
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Secret
+        name: "{{ pg_secret_name | default(pg_service_name ~ '-credentials') }}"
+        namespace: "{{ db_ns }}"
+        state: absent
+      failed_when: false
+      when: destroy_db_ns_present | bool
+
+    - name: Mark DB destroy stage done
+      ansible.builtin.set_fact:
+        destroy_db_done: true
+
+    - name: Delete app Namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ app_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ destroy_wait_timeout | int }}"
+      when:
+        - destroy_namespaces | default(true) | bool
+        - destroy_app_ns_present | bool
+
+    - name: Delete DB Namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ db_ns }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ destroy_wait_timeout | int }}"
+      when:
+        - destroy_namespaces | default(true) | bool
+        - destroy_db_ns_present | bool
+
+- name: Mark destroy complete
+  ansible.builtin.set_fact:
+    destroy_completed: true
+
+- name: Show destroy result
+  ansible.builtin.debug:
+    msg:
+      destroy_completed: "{{ destroy_completed }}"
+      destroy_app_done: "{{ destroy_app_done }}"
+      destroy_db_done: "{{ destroy_db_done }}"
+      destroy_namespaces: "{{ destroy_namespaces | default(true) }}"
+      ao_name: "{{ ao_name }}"
+      app_ns: "{{ app_ns }}"
+      db_ns: "{{ db_ns }}"
+      pg_pvc_name: "{{ pg_pvc_name }}"
+      pg_service_name: "{{ pg_service_name }}"

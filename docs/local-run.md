@@ -102,6 +102,10 @@ ansible-playbook playbooks/clean_install.yml $EX -e ao_channel=early-access
 
 # Optional weekly app wipe (keep DB): teardown then update
 ansible-playbook playbooks/teardown_app.yml $EX
+
+# DESTRUCTIVE — delete AO + BYO PostgreSQL (StatefulSet, PVC, namespaces):
+# ansible-playbook playbooks/teardown_full.yml $EX -e destroy_confirm=DESTROY-AO-AND-DB
+# Keep namespaces only: add -e destroy_namespaces=false
 ansible-playbook playbooks/update_release.yml $EX -e ao_channel=early-access
 ```
 

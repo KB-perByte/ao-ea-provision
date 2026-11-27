@@ -1,0 +1,37 @@
+---
+# Cluster-free: require identifiers + exact destroy_confirm phrase.
+# Does not call k8s. Separate from ao_ea_teardown (which never deletes DB).
+
+- name: Require destroy identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - db_ns is defined and (db_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - pg_pvc_name is defined and (pg_pvc_name | length) > 0
+      - pg_service_name is defined and (pg_service_name | length) > 0
+      - app_ns != db_ns
+    fail_msg: >-
+      destroy requires distinct non-empty app_ns, db_ns, ao_name,
+      pg_pvc_name, and pg_service_name.
+
+- name: Require exact destroy confirmation phrase
+  ansible.builtin.assert:
+    that:
+      - destroy_confirm is defined
+      - (destroy_confirm | string) == (destroy_confirm_phrase | string)
+    fail_msg: >-
+      Refusing full destroy. Pass the exact confirmation phrase:
+        -e destroy_confirm={{ destroy_confirm_phrase }}
+      This deletes the AO CR in {{ app_ns }} and PostgreSQL data in
+      {{ db_ns }} (StatefulSet {{ pg_service_name }}, PVC {{ pg_pvc_name }}).
+      Use playbooks/teardown_app.yml to wipe only the app and keep the DB.
+    success_msg: >-
+      destroy_confirm accepted; will destroy AO in {{ app_ns }} and DB
+      in {{ db_ns }} (PVC {{ pg_pvc_name }}).
+
+- name: Initialize destroy facts fail-closed
+  ansible.builtin.set_fact:
+    destroy_completed: false
+    destroy_app_done: false
+    destroy_db_done: false

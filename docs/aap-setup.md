@@ -23,6 +23,7 @@ credential set. Limit to the Project's SCM playbook paths below.
 |---|---|
 | `ea-preflight` | `playbooks/preflight.yml` |
 | `ea-teardown-app` | `playbooks/teardown_app.yml` |
+| `ea-teardown-full` (optional, destructive) | `playbooks/teardown_full.yml` |
 | `ea-ensure-db` | `playbooks/ensure_db.yml` |
 | `ea-ensure-secrets` | `playbooks/ensure_secrets.yml` |
 | `ea-ensure-operator` | `playbooks/ensure_operator.yml` |
@@ -204,6 +205,26 @@ oc get statefulset ao-postgres -n syntarogation-ao-db
 
 # Re-run JT: success / no-op; PVC still Bound
 ```
+
+## Full destroy (`ea-teardown-full`) — optional, destructive
+
+Playbook: `playbooks/teardown_full.yml`.
+
+Deletes the AO CR (and waits for GC), then the BYO PostgreSQL
+StatefulSet / Service / PVC / credentials Secret in `db_ns`, then
+(optionally) Namespaces `app_ns` and `db_ns`. **Not** part of the weekly
+keep-DB workflow.
+
+Requires an exact confirmation phrase:
+
+```bash
+ansible-playbook playbooks/teardown_full.yml \
+  -e @secrets/local.extra_vars.yml \
+  -e destroy_confirm=DESTROY-AO-AND-DB
+# Keep namespaces: -e destroy_namespaces=false
+```
+
+Without `destroy_confirm=DESTROY-AO-AND-DB` the play fails closed.
 
 ## Ensure DB (`ea-ensure-db`)
 

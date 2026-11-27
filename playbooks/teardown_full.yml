@@ -1,0 +1,23 @@
+---
+# DESTRUCTIVE: delete AO app AND BYO PostgreSQL (StatefulSet + PVC + optional
+# Namespaces). Not part of the weekly keep-DB workflow.
+#
+# Requires an exact confirmation phrase (default DESTROY-AO-AND-DB):
+#
+#   ansible-playbook playbooks/teardown_full.yml \
+#     -e @secrets/local.extra_vars.yml \
+#     -e destroy_confirm=DESTROY-AO-AND-DB
+#
+# Keep namespaces, delete only workloads + PVC:
+#   -e destroy_namespaces=false
+#
+# App-only wipe (keep DB): use playbooks/teardown_app.yml instead.
+
+- name: Destroy Automation Orchestrator app and BYO PostgreSQL
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run AO EA full destroy
+      ansible.builtin.include_role:
+        name: ao_ea_destroy

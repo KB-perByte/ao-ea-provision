@@ -1,0 +1,17 @@
+---
+# Full destroy of app + BYO PostgreSQL. Opt-in only.
+# Requires destroy_confirm == destroy_confirm_phrase (exact match).
+
+k8s_validate_certs: true
+
+# Must match -e destroy_confirm=… exactly or the play fails closed.
+destroy_confirm_phrase: DESTROY-AO-AND-DB
+
+destroy_wait_timeout: 600
+destroy_wait_delay: 10
+
+# When true, also delete Namespaces app_ns and db_ns after workloads/PVC.
+destroy_namespaces: true
+
+# PG Secret name in db_ns (matches ao_ea_postgres default).
+pg_secret_name: ao-postgres-credentials

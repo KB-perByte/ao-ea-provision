@@ -85,6 +85,7 @@ map or in script-node variables.
 | Clean install stable | `clean_install.yml -e ao_channel=stable` |
 | Clean install early-access | `clean_install.yml -e ao_channel=early-access` |
 | Weekly wipe app, keep DB | `teardown_app.yml` then `update_release.yml` |
+| **Destroy app + DB** (PVC gone) | `teardown_full.yml -e destroy_confirm=DESTROY-AO-AND-DB` |
 | Repair stale EP alembic only | `ensure_db.yml -e ep_force_reset=true` then `apply_ao_cr` / `health_check` |
 | Repair admin login vs Secret | `sync_admin_password.yml` (also runs at end of clean/update) |
 

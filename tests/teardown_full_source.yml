@@ -1,0 +1,55 @@
+---
+# Static contract: full destroy is opt-in, confirm-gated, and separate from
+# teardown_app (which must never delete DB resources).
+#
+# Positive: ansible-playbook tests/teardown_full_source.yml
+
+- name: Assert teardown_full / destroy sources
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    destroy_sources:
+      - "{{ playbook_dir }}/../playbooks/teardown_full.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_destroy/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_destroy/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_destroy/defaults/main.yml"
+      - "{{ playbook_dir }}/../playbooks/teardown_app.yml"
+  tasks:
+    - name: Load destroy sources
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ destroy_sources }}"
+      register: destroy_slurps
+
+    - name: Combine texts
+      ansible.builtin.set_fact:
+        destroy_text: "{{ destroy_slurps.results[:4] | map(attribute='content') | map('b64decode') | join('\n') }}"
+        teardown_app_text: "{{ destroy_slurps.results[4].content | b64decode }}"
+
+    - name: Require confirm gate and DB deletes only in destroy path
+      ansible.builtin.assert:
+        that:
+          - "'DESTROY-AO-AND-DB' in destroy_text"
+          - "'destroy_confirm' in destroy_text"
+          - "'kind: PersistentVolumeClaim' in destroy_text"
+          - "'kind: StatefulSet' in destroy_text"
+          - "'pg_pvc_name' in destroy_text"
+          - "'destroy_completed' in destroy_text"
+          - "'teardown_app.yml' in destroy_text"
+        fail_msg: >-
+          teardown_full must require destroy_confirm=DESTROY-AO-AND-DB and
+          delete StatefulSet + PVC, while pointing keep-DB users at
+          teardown_app.yml.
+        success_msg: Full destroy confirm gate and DB delete path present.
+
+    - name: Require teardown_app still never deletes DB resources
+      ansible.builtin.assert:
+        that:
+          - "'kind: PersistentVolumeClaim' not in teardown_app_text"
+          - "'kind: StatefulSet' not in teardown_app_text"
+          - "'DESTROY-AO-AND-DB' not in teardown_app_text"
+        fail_msg: >-
+          teardown_app.yml must remain keep-DB only; full wipe belongs in
+          teardown_full.yml.
+        success_msg: teardown_app.yml remains keep-DB only.

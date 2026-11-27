@@ -34,6 +34,7 @@ Optional weekly app wipe (keep DB): `teardown_app.yml` then `update_release.yml`
 |---|---|---|
 | 1 | `playbooks/preflight.yml` | API / catalog / `ao_channel` available |
 | 2 | `playbooks/teardown_app.yml` | Delete AO CR in `app_ns`; **never** touch DB ns/PVC |
+| — | `playbooks/teardown_full.yml` | **Destructive:** AO + BYO PG (needs `-e destroy_confirm=DESTROY-AO-AND-DB`) |
 | 3 | `playbooks/ensure_db.yml` | Ensure PG StatefulSet + init; never delete PVC |
 | 4 | `playbooks/ensure_secrets.yml` | Recreate app-ns PG Secrets from vars |
 | 5 | `playbooks/ensure_operator.yml` | Install or reconcile Subscription to `ao_channel`; wait latest CSV |
@@ -142,7 +143,9 @@ ansible-playbook playbooks/clean_install.yml -e @secrets/local.extra_vars.yml \
 
 ## Hard rules
 
-1. Never delete `db_ns`, PVC `pg_pvc_name`, or StatefulSet data.
+1. Never delete `db_ns`, PVC `pg_pvc_name`, or StatefulSet data in the weekly
+   path (`teardown_app`). Full wipe is only `teardown_full.yml` with
+   `-e destroy_confirm=DESTROY-AO-AND-DB`.
 2. Never create a second Operator Subscription; reconcile channel on the existing one.
 3. Do not log tokens, PG passwords, or admin password plaintext.
 4. Prefer AAP for production; local runs are for debug and first bring-up.
