@@ -16,3 +16,12 @@ operator_wait_timeout: 900
 operator_wait_delay: 15
 operator_created: false
 operator_channel_reconciled: false
+ao_operator_manager_deployment_name: automation-orchestrator-operator-controller-manager
+
+# OLM applies Subscription.spec.config.env to the Operator deployment. These
+# values override the Operator's Quay :devel fallbacks before it seeds AO's DB.
+ao_script_image_env:
+  - name: RELATED_IMAGE_SCRIPT_PYTHON
+    value: "{{ ao_script_python_image_reference }}"
+  - name: RELATED_IMAGE_SCRIPT_BASH
+    value: "{{ ao_script_bash_image_reference }}"

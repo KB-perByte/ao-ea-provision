@@ -54,6 +54,14 @@ Defaults (non-secret) live in `inventory/group_vars/all.yml`:
 | `app_ns` | `syntarogation-ao` |
 | `db_ns` | `syntarogation-ao-db` |
 | `ao_channel` | `early-access` |
+| `ao_script_python_image_reference` | `registry.redhat.io/ansible-automation-platform/ao-python-rhel9:2026.8` |
+| `ao_script_bash_image_reference` | `registry.redhat.io/ansible-automation-platform/ao-bash-rhel9:2026.8` |
+
+`ensure_operator` places the script image references in the OLM Subscription's
+`spec.config.env`, then waits for the Operator manager rollout and confirms
+both values reached its Deployment before the AO CR can trigger DB seeding.
+This avoids the Operator's Quay `:devel` defaults. Override either reference
+with Ansible extra-vars or inventory when a different image release is needed.
 
 ## Secrets policy
 

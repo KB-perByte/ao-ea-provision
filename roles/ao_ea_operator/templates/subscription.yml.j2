@@ -4,8 +4,11 @@ metadata:
   name: {{ operator_subscription_name }}
   namespace: {{ operator_ns }}
 spec:
-  channel: {{ ao_channel }}
+  channel: {{ operator_subscription_target_channel | default(ao_channel) | to_json }}
   name: {{ ao_operator_package }}
   source: {{ catalog_source }}
   sourceNamespace: {{ catalog_ns }}
-  installPlanApproval: {{ operator_install_plan_approval }}
+  installPlanApproval: {{ operator_subscription_target_approval | default(operator_install_plan_approval) | to_json }}
+  config:
+    env:
+{{ (ao_operator_config_env | default(ao_script_image_env)) | to_nice_yaml(indent=2) | indent(6, true) }}

@@ -75,15 +75,16 @@
         subscription_approval: "{{ ao_sub_query.resources[0].spec.installPlanApproval | default('') }}"
         subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
         installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
+        subscription_config_env: "{{ ao_sub_query.resources[0].spec.config.env | default([]) }}"
       when: subscription_exists | bool
 
-    - name: Reconcile existing Subscription channel to ao_channel
+    - name: Reconcile existing Subscription channel and image settings
       ansible.builtin.include_tasks: reconcile_channel.yml
       when:
         - subscription_exists | bool
         - not (operator_created | bool)
 
-    - name: Re-query the named Subscription after optional channel reconcile
+    - name: Re-query the named Subscription after optional configuration reconcile
       kubernetes.core.k8s_info:
         api_version: operators.coreos.com/v1alpha1
         kind: Subscription
@@ -92,17 +93,18 @@
       register: ao_sub_query
       when:
         - subscription_exists | bool
-        - operator_channel_reconciled | default(false) | bool
+        - not (operator_created | bool)
 
-    - name: Refresh Subscription fields after channel reconcile
+    - name: Refresh Subscription fields after configuration reconcile
       ansible.builtin.set_fact:
         subscription_channel: "{{ ao_sub_query.resources[0].spec.channel | default('') }}"
         subscription_approval: "{{ ao_sub_query.resources[0].spec.installPlanApproval | default('') }}"
         subscription_state: "{{ ao_sub_query.resources[0].status.state | default('') }}"
         installed_csv: "{{ ao_sub_query.resources[0].status.installedCSV | default('') }}"
+        subscription_config_env: "{{ ao_sub_query.resources[0].spec.config.env | default([]) }}"
       when:
         - subscription_exists | bool
-        - operator_channel_reconciled | default(false) | bool
+        - not (operator_created | bool)
 
     - name: Wait for Subscription AtLatestKnown and CSV Succeeded
       ansible.builtin.include_tasks: wait_operator_healthy.yml
