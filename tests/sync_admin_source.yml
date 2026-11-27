@@ -1,0 +1,61 @@
+---
+# Static contract: admin password sync keeps Secret↔DB aligned for both
+# clean_install and update_release without printing the password.
+#
+# Positive: ansible-playbook tests/sync_admin_source.yml
+
+- name: Assert admin password sync sources
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    admin_sources:
+      - "{{ playbook_dir }}/../playbooks/sync_admin_password.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_admin/tasks/main.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_admin/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_admin/defaults/main.yml"
+      - "{{ playbook_dir }}/../playbooks/clean_install.yml"
+      - "{{ playbook_dir }}/../playbooks/update_release.yml"
+  tasks:
+    - name: Load admin sync sources
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ admin_sources }}"
+      register: admin_slurps
+
+    - name: Combine admin sync source text
+      ansible.builtin.set_fact:
+        admin_text: "{{ admin_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+        clean_text: "{{ admin_slurps.results[4].content | b64decode }}"
+        update_text: "{{ admin_slurps.results[5].content | b64decode }}"
+
+    - name: Require sync via ao-admin without printing the Secret
+      ansible.builtin.assert:
+        that:
+          - "'admin_password_sync' in admin_text"
+          - "'reset-password' in admin_text"
+          - "'syntara.orchestrator_admin' in admin_text"
+          - "'initial-admin-password' in admin_text"
+          - "'no_log: true' in admin_text"
+          - "'admin_password_synced' in admin_text"
+          - "'Password reset' in admin_text"
+          - "'oc extract' not in admin_text"
+          - "'jsonpath' not in admin_text or \"jsonpath='{.data.password}'\" not in admin_text"
+        fail_msg: >-
+          ao_ea_admin must reset-password from the initial-admin-password
+          Secret with no_log, never extract/print the value, and record
+          admin_password_synced.
+        success_msg: Admin password sync contract holds.
+
+    - name: Require both wrappers run admin sync after health
+      ansible.builtin.assert:
+        that:
+          - "'ao_ea_admin' in clean_text"
+          - "'ao_ea_admin' in update_text"
+          - clean_text.index('ao_ea_health') < clean_text.index('ao_ea_admin')
+          - update_text.index('ao_ea_health') < update_text.index('ao_ea_admin')
+        fail_msg: >-
+          clean_install.yml and update_release.yml must include ao_ea_admin
+          after ao_ea_health so both fresh install and update/recreate sync
+          the admin password once Ready.
+        success_msg: Wrappers sync admin password after health on clean and update.

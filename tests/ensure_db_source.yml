@@ -11,12 +11,15 @@
       - "{{ playbook_dir }}/../playbooks/ensure_db.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/main.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/guards.yml"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/reset_ep_db.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/defaults/main.yml"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/statefulset.yml.j2"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/service.yml.j2"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/secret.yml.j2"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/init_roles.sh.j2"
       - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/init_pgcrypto.sh.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/probe_ep_alembic.sh.j2"
+      - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/reset_execution_plane_db.sh.j2"
   tasks:
     - name: Load postgres source files
       ansible.builtin.slurp:
@@ -55,11 +58,24 @@
           - "'vault_pg_execution_plane_password' in postgres_text"
           - "'pg_execution_plane' in postgres_text"
           - "'script_nodes_enabled' in postgres_text"
+          - "'ep_reset_on_update' in postgres_text"
+          - "'ep_force_reset' in postgres_text"
+          - "'ep_stale_alembic_revisions' in postgres_text"
+          - "'n0k1l2m3n4o5' in postgres_text"
+          - "'probe_ep_alembic' in postgres_text or 'alembic_version' in postgres_text"
+          - "'RESET_OK' in postgres_text"
+          - "'execution-plane-migration' in postgres_text"
+          - "'DROP DATABASE IF EXISTS' in postgres_text"
+          - "'orchestrator' in postgres_text"
+          - "'temporal' in postgres_text"
         fail_msg: >-
           ensure_db must use quay SCLORG postgresql-15, max_connections,
           volumeClaimTemplates (gp3-csi/20Gi), mount /var/lib/pgsql/data,
           consume vault_pg_* password var names (including execution plane),
-          and produce pg_host, pvc_bound, and db_ready.
+          produce pg_host, pvc_bound, and db_ready, and reset a stale
+          execution_plane alembic stamp (ep_reset_on_update /
+          ep_force_reset / n0k1l2m3n4o5) without dropping orchestrator
+          or temporal databases.
 
     - name: Split pgcrypto script at orchestrator psql
       ansible.builtin.set_fact:

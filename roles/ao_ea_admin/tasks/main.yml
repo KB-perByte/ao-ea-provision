@@ -1,0 +1,119 @@
+---
+# After Ready: set local admin password from the operator-managed Secret.
+# Covers clean_install and update_release (including teardown_app + recreate
+# against a persistent orchestrator DB). Never prints the password.
+
+- name: Run admin sync guards
+  ansible.builtin.include_tasks: guards.yml
+
+- name: Skip admin password sync when disabled
+  ansible.builtin.debug:
+    msg: >-
+      admin_password_sync=false; leaving admin_password_synced=false.
+      No cluster mutation.
+  when: admin_sync_skipped | bool
+
+- name: Sync admin password from Secret into the application DB
+  when: not (admin_sync_skipped | bool)
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Confirm initial-admin-password Secret exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ ao_admin_password_secret_name }}"
+        namespace: "{{ app_ns }}"
+      register: admin_password_secret_query
+      no_log: true
+
+    - name: Require Secret key for admin password
+      ansible.builtin.assert:
+        that:
+          - (admin_password_secret_query.resources | default([])) | length > 0
+          - ao_admin_password_secret_key in (admin_password_secret_query.resources[0].data | default({}))
+        fail_msg: >-
+          Secret {{ ao_admin_password_secret_name }} missing in {{ app_ns }}
+          (or key {{ ao_admin_password_secret_key }} absent). Run health_check
+          / apply_ao_cr first.
+      no_log: true
+
+    - name: Decode admin password from Secret
+      ansible.builtin.set_fact:
+        admin_password_plain: >-
+          {{ admin_password_secret_query.resources[0].data[ao_admin_password_secret_key]
+             | b64decode }}
+      no_log: true
+
+    - name: Require non-empty decoded admin password
+      ansible.builtin.assert:
+        that:
+          - admin_password_plain is defined
+          - (admin_password_plain | length) > 0
+        fail_msg: >-
+          Decoded {{ ao_admin_password_secret_name }}/{{ ao_admin_password_secret_key }}
+          is empty; cannot sync.
+      no_log: true
+
+    - name: Find a Running backend pod
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ app_ns }}"
+        label_selectors: "{{ ao_backend_pod_label_selectors }}"
+        field_selectors:
+          - status.phase=Running
+      register: backend_pod_query
+
+    - name: Record backend pod name
+      ansible.builtin.set_fact:
+        backend_pod_name: >-
+          {{ (backend_pod_query.resources | default([])
+              | map(attribute='metadata.name') | list | first) | default('') }}
+
+    - name: Require a Running backend pod
+      ansible.builtin.assert:
+        that:
+          - (backend_pod_name | length) > 0
+        fail_msg: >-
+          No Running pod with labels {{ ao_backend_pod_label_selectors }}
+          in {{ app_ns }}. Wait for Ready (health_check) before syncing
+          the admin password.
+
+    - name: Reset admin password inside the backend pod
+      kubernetes.core.k8s_exec:
+        namespace: "{{ app_ns }}"
+        pod: "{{ backend_pod_name }}"
+        command: >-
+          python3 -m syntara.orchestrator_admin reset-password
+          -u {{ admin_username | quote }}
+          --password {{ admin_password_plain | quote }}
+          --yes
+      register: admin_reset_exec
+      no_log: true
+
+    - name: Require password reset succeeded
+      ansible.builtin.assert:
+        that:
+          - (admin_reset_exec.rc | default(1) | int) == 0
+          - >-
+              ('Password reset' in (admin_reset_exec.stdout | default('')))
+              or ('Password reset' in (admin_reset_exec.stderr | default('')))
+        fail_msg: >-
+          ao-admin reset-password failed in pod {{ backend_pod_name }}
+          (rc={{ admin_reset_exec.rc | default('?') }}). Secret value not
+          printed. Confirm the backend can reach the orchestrator DB and
+          user '{{ admin_username }}' exists.
+        success_msg: >-
+          Admin password synced from Secret {{ ao_admin_password_secret_name }}
+          for user '{{ admin_username }}' (value not printed).
+
+    - name: Record admin password sync
+      ansible.builtin.set_fact:
+        admin_password_synced: true
+        admin_password_plain: ""
+      no_log: true

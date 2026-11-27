@@ -1,0 +1,22 @@
+---
+# Fail closed before touching the cluster. Initializes sync facts.
+
+- name: Require admin sync identifiers
+  ansible.builtin.assert:
+    that:
+      - app_ns is defined and (app_ns | length) > 0
+      - ao_name is defined and (ao_name | length) > 0
+      - admin_username is defined and (admin_username | length) > 0
+      - ao_admin_password_secret_name is defined and (ao_admin_password_secret_name | length) > 0
+      - ao_admin_password_secret_key is defined and (ao_admin_password_secret_key | length) > 0
+    fail_msg: >-
+      sync_admin_password requires app_ns, ao_name, admin_username, and
+      the initial-admin-password Secret name/key to be defined and non-empty.
+    success_msg: >-
+      Admin password sync identifiers are set
+      (app_ns={{ app_ns }} ao_name={{ ao_name }}; Secret value not printed).
+
+- name: Initialize admin sync facts
+  ansible.builtin.set_fact:
+    admin_password_synced: false
+    admin_sync_skipped: "{{ not (admin_password_sync | default(true) | bool) }}"

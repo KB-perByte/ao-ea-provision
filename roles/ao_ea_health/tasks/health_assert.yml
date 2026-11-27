@@ -12,6 +12,11 @@
       {{ ao_ready_condition }}=True after waiting
       {{ ao_ready_wait_timeout }}s. Check operator events, PostgreSQL in
       {{ db_ns | default('db_ns') }}, and secretRef Secrets in app_ns.
+      If Degraded=MigrationFailed mentions execution-plane-migration or
+      "Can't locate revision", re-run ensure_db with
+      -e ep_force_reset=true (resets only the execution_plane database;
+      keeps the PVC and orchestrator/temporal DBs), then apply_ao_cr /
+      health_check again.
     success_msg: >-
       AutomationOrchestrator {{ ao_name }} is {{ ao_ready_condition }}=True
       in {{ app_ns }}.

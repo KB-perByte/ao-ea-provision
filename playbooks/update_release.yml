@@ -1,7 +1,8 @@
 ---
 # In-place update for ao_channel (early-access | stable). Keeps DB PVC
 # and the AO CR; reconciles operator channel to latest CSV, then refreshes
-# secrets / CR / postconfig / health. Never tears down the app.
+# secrets / CR / postconfig / health / admin password sync. Never tears
+# down the app.
 #
 #   ansible-playbook playbooks/update_release.yml \
 #     -e @secrets/local.extra_vars.yml -e ao_channel=early-access
@@ -52,3 +53,7 @@
     - name: Health-check Ready + Route + /health
       ansible.builtin.include_role:
         name: ao_ea_health
+
+    - name: Sync admin password from Secret into the DB
+      ansible.builtin.include_role:
+        name: ao_ea_admin

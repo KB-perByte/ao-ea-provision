@@ -1,0 +1,159 @@
+---
+# When script nodes / Execution Plane are enabled, detect a stale
+# alembic_version in the EP database and recreate that database only.
+# Also delete EP migration Jobs so the operator can retry against the
+# empty DB. Never deletes the PVC or orchestrator/temporal databases.
+
+- name: Initialize EP reset facts
+  ansible.builtin.set_fact:
+    ep_alembic_revision: NONE
+    ep_reset_needed: false
+    ep_db_reset: false
+    ep_failed_jobs_deleted: 0
+
+- name: Skip EP alembic probe when script nodes are disabled
+  ansible.builtin.debug:
+    msg: script_nodes_enabled=false; skipping Execution Plane DB reset path.
+  when: not (script_nodes_enabled | default(true) | bool)
+
+- name: Probe and optionally reset the Execution Plane database
+  when: script_nodes_enabled | default(true) | bool
+  module_defaults:
+    group/kubernetes.core.k8s:
+      host: "{{ cluster_api }}"
+      api_key: "{{ k8s_api_key | default(omit) }}"
+      kubeconfig: "{{ k8s_kubeconfig | default(omit) }}"
+      validate_certs: "{{ k8s_validate_certs }}"
+  block:
+    - name: Render EP alembic probe command
+      ansible.builtin.set_fact:
+        ep_alembic_probe_cmd: >-
+          /bin/bash -lc {{
+            ('echo '
+             ~ (lookup('template', 'probe_ep_alembic.sh.j2') | b64encode)
+             ~ ' | base64 -d | /bin/bash') | quote
+          }}
+
+    - name: Probe Execution Plane alembic revision
+      kubernetes.core.k8s_exec:
+        namespace: "{{ db_ns }}"
+        pod: "{{ pg_pod_name }}"
+        container: "{{ pg_container_name }}"
+        command: "{{ ep_alembic_probe_cmd }}"
+      register: ep_alembic_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Record EP alembic revision
+      ansible.builtin.set_fact:
+        ep_alembic_revision: "{{ (ep_alembic_probe.stdout | default('NONE') | trim | split('\n') | last | default('NONE')) | trim }}"
+
+    - name: Decide whether to reset the Execution Plane database
+      ansible.builtin.set_fact:
+        ep_reset_needed: >-
+          {{
+            (ep_force_reset | default(false) | bool)
+            or (
+              (ep_reset_on_update | default(true) | bool)
+              and ((provision_mode | default('')) | string) == 'update'
+            )
+            or (ep_alembic_revision in (ep_stale_alembic_revisions | default([])))
+          }}
+
+    - name: Show EP alembic probe result
+      ansible.builtin.debug:
+        msg: >-
+          ep_alembic_revision={{ ep_alembic_revision }}
+          ep_reset_needed={{ ep_reset_needed }}
+          provision_mode={{ provision_mode | default('') }}
+          ep_force_reset={{ ep_force_reset | default(false) }}
+          ep_reset_on_update={{ ep_reset_on_update | default(true) }}
+
+    - name: Render Execution Plane database reset command
+      ansible.builtin.set_fact:
+        ep_reset_cmd: >-
+          /bin/bash -lc {{
+            ('echo '
+             ~ (lookup('template', 'reset_execution_plane_db.sh.j2') | b64encode)
+             ~ ' | base64 -d | /bin/bash') | quote
+          }}
+      when: ep_reset_needed | bool
+
+    - name: Reset Execution Plane database for a clean EP migration
+      kubernetes.core.k8s_exec:
+        namespace: "{{ db_ns }}"
+        pod: "{{ pg_pod_name }}"
+        container: "{{ pg_container_name }}"
+        command: "{{ ep_reset_cmd }}"
+      register: ep_reset_exec
+      when: ep_reset_needed | bool
+      retries: "{{ pg_init_retries | int }}"
+      delay: "{{ pg_init_delay | int }}"
+      until: >-
+        (ep_reset_exec.rc | default(ep_reset_exec.return_code | default(1))) == 0
+        and ('RESET_OK' in (ep_reset_exec.stdout | default('')))
+
+    - name: Require Execution Plane database reset success
+      ansible.builtin.assert:
+        that:
+          - (ep_reset_exec.rc | default(ep_reset_exec.return_code | default(1))) == 0
+          - "'RESET_OK' in (ep_reset_exec.stdout | default(''))"
+        fail_msg: >-
+          Failed to reset database {{ pg_execution_plane_database }} in
+          {{ db_ns }}. Check pod {{ pg_pod_name }} logs, then re-run
+          ensure_db with -e ep_force_reset=true.
+        success_msg: >-
+          Database {{ pg_execution_plane_database }} was recreated for a
+          clean Execution Plane migration.
+      when: ep_reset_needed | bool
+
+    - name: Record that the Execution Plane database was reset
+      ansible.builtin.set_fact:
+        ep_db_reset: true
+        ep_alembic_revision: NONE
+      when: ep_reset_needed | bool
+
+    - name: List Jobs in app_ns after EP DB reset
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: Job
+        namespace: "{{ app_ns }}"
+      register: ep_jobs_query
+      when:
+        - ep_reset_needed | bool
+        - app_ns is defined
+        - (app_ns | length) > 0
+        - ao_name is defined
+        - (ao_name | length) > 0
+
+    - name: Collect Execution Plane migration Job names
+      ansible.builtin.set_fact:
+        ep_migration_job_names: >-
+          {{
+            (ep_jobs_query.resources | default([]))
+            | map(attribute='metadata.name')
+            | select('match', '^' ~ (ao_name | regex_escape) ~ '-execution-plane-migration-')
+            | list
+            | unique
+          }}
+      when:
+        - ep_reset_needed | bool
+        - ep_jobs_query is defined
+
+    - name: Delete Execution Plane migration Jobs so the operator can retry
+      kubernetes.core.k8s:
+        api_version: batch/v1
+        kind: Job
+        name: "{{ item }}"
+        namespace: "{{ app_ns }}"
+        state: absent
+        wait: false
+      loop: "{{ ep_migration_job_names | default([]) }}"
+      when:
+        - ep_reset_needed | bool
+        - (ep_migration_job_names | default([]) | length) > 0
+
+    - name: Record deleted Execution Plane migration Job count
+      ansible.builtin.set_fact:
+        ep_failed_jobs_deleted: "{{ (ep_migration_job_names | default([]) | length) }}"
+      when: ep_reset_needed | bool

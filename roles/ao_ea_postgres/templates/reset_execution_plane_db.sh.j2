@@ -1,0 +1,20 @@
+set -euo pipefail
+# Drop and recreate the Execution Plane database so AO EP migrations can
+# run from an empty schema. Used when alembic_version is stamped with a
+# revision the current early-access EP image does not contain
+# (e.g. n0k1l2m3n4o5 → "Can't locate revision identified by ...").
+# Never touches orchestrator / temporal / temporal_visibility or the PVC.
+DB='{{ pg_execution_plane_database }}'
+OWNER='{{ pg_execution_plane_user }}'
+psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<EOSQL
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = '${DB}' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS ${DB};
+CREATE DATABASE ${DB} OWNER ${OWNER};
+EOSQL
+psql -U postgres -d "${DB}" -v ON_ERROR_STOP=1 <<EOSQL
+GRANT ALL ON SCHEMA public TO ${OWNER};
+ALTER SCHEMA public OWNER TO ${OWNER};
+EOSQL
+echo RESET_OK

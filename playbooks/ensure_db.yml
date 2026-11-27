@@ -4,6 +4,9 @@
 # Never delete PVC pg_pvc_name. If that PVC is Bound, only ensure
 # StatefulSet/Service and pod Ready (volumeClaimTemplates reuse it).
 # CREATE EXTENSION pgcrypto as user orchestrator, not postgres.
+# When script_nodes_enabled: probe execution_plane alembic_version; reset
+# that DB on provision_mode=update (ep_reset_on_update), ep_force_reset,
+# or a known-stale revision — then delete EP migration Jobs for retry.
 
 - name: Ensure early-access AO PostgreSQL
   hosts: localhost

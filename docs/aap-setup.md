@@ -29,6 +29,7 @@ credential set. Limit to the Project's SCM playbook paths below.
 | `ea-apply-ao-cr` | `playbooks/apply_ao_cr.yml` |
 | `ea-postconfig` | `playbooks/postconfig.yml` |
 | `ea-health-check` | `playbooks/health_check.yml` |
+| `ea-sync-admin-password` | `playbooks/sync_admin_password.yml` |
 
 Optional survey on launch: `ao_channel` (default `early-access`). Do not
 survey for tokens or passwords.
@@ -73,6 +74,9 @@ Override per launch only when needed.
 | `pg_service_name` | `ao-postgres` | StatefulSet / Service |
 | `route_host` | `syntarogation-ao.apps.rosa.OpenShift-instance.rnil.p3.openshiftapps.com` | Ingress host |
 | `ao_channel` | `early-access` | Target OLM channel (`early-access` or `stable`); ensure_operator reconciles the Subscription |
+| `ep_reset_on_update` | `true` | On `update_release` (`provision_mode=update`), recreate only the `execution_plane` DB before CR reconcile |
+| `ep_force_reset` | `false` | Force that EP DB recreate from any playbook (`ensure_db.yml -e ep_force_reset=true`) |
+| `admin_password_sync` | `true` | After Ready, sync `{ao}-initial-admin-password` into the DB (clean install + update/recreate). Skip with `false` |
 | `catalog_source` | `redhat-operators` | Marketplace catalog |
 | `catalog_ns` | `openshift-marketplace` | CatalogSource namespace |
 | `operator_ns` | `automation-orchestrator-operator-system` | Existing operator install |
@@ -284,8 +288,8 @@ oc get secret orchestrator-pg-credentials -n syntarogation-ao \
 
 | Playbook | Mode | Keeps DB | Keeps AO CR |
 |---|---|---|---|
-| `playbooks/update_release.yml` | update | yes | yes |
-| `playbooks/clean_install.yml` | clean | creates / never deletes PVC | creates |
+| `playbooks/update_release.yml` | update | yes | yes (ends with admin password sync) |
+| `playbooks/clean_install.yml` | clean | creates / never deletes PVC | creates (ends with admin password sync) |
 
 Pass `-e ao_channel=early-access` or `-e ao_channel=stable`. Optional
 weekly wipe: `teardown_app` then `update_release`.
@@ -445,6 +449,20 @@ oc get secret my-orchestrator-initial-admin-password \
   -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
 # expected: password (key only; do not extract the value)
 ```
+
+## Sync admin password (`ea-sync-admin-password`)
+
+Playbook: `playbooks/sync_admin_password.yml`.
+
+After Ready, runs `ao-admin reset-password` in a backend pod using the
+operator Secret `{ao_name}-initial-admin-password` (key `password`).
+Needed when `app_ns`/CR is recreated against a persistent `orchestrator`
+DB (seed only sets the password on first admin create). Also safe on a
+true fresh install — keeps Secret and UI login aligned. Default on in
+`clean_install.yml` and `update_release.yml`
+(`admin_password_sync=true`). Never prints the value (`no_log`).
+
+AAP Job Template creation is human-owned.
 
 ## Collections
 

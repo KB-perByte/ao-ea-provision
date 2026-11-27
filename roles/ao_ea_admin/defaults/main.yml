@@ -1,0 +1,20 @@
+---
+# Sync {ao}-initial-admin-password into the application DB after Ready.
+# Needed when app_ns/CR is recreated against a persistent orchestrator DB
+# (seed only sets the password on first admin create). Safe on a true
+# fresh install: reset is idempotent and keeps Secret and DB aligned.
+
+k8s_validate_certs: true
+
+admin_password_sync: true
+admin_username: admin
+
+ao_admin_password_secret_suffix: initial-admin-password
+ao_admin_password_secret_name: "{{ ao_name }}-{{ ao_admin_password_secret_suffix }}"
+ao_admin_password_secret_key: password
+
+ao_backend_deploy_suffix: backend
+ao_backend_deploy_name: "{{ ao_name }}-{{ ao_backend_deploy_suffix }}"
+ao_backend_pod_label_selectors:
+  - "app.kubernetes.io/instance={{ ao_name }}"
+  - "app.kubernetes.io/component=backend"

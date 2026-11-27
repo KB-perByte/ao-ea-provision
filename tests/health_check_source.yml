@@ -49,11 +49,14 @@
           - "'value not printed' in health_text"
           - "'Route down' in health_text"
           - "'kubernetes.core.k8s_info:' in health_text"
+          - "'ep_force_reset' in health_text"
+          - "'execution-plane-migration' in health_text or \"Can't locate revision\" in health_text"
         fail_msg: >-
           health_check must wait for Ready (~1200s), produce
           cr_ready/pods_ready/route_ok/http_probe_ok/route_url, probe
           HTTPS /health for 200, assert initial-admin-password exists,
-          fail clearly when Route is down, and never print the password.
+          fail clearly when Route is down, hint ep_force_reset for EP
+          MigrationFailed, and never print the password.
 
     - name: Require key Deployment suffixes
       ansible.builtin.assert:

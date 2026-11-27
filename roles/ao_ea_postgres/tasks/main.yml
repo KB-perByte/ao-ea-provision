@@ -189,6 +189,13 @@
           stderr={{ pg_init_pgcrypto.stderr | default('') | trim }}
         success_msg: pgcrypto exists and is owned by orchestrator.
 
+    # Early-access EP images can leave alembic_version stamped with a
+    # revision the next build does not ship (MigrationFailed:
+    # Can't locate revision identified by 'n0k1l2m3n4o5'). Reset only
+    # the execution_plane database; keep PVC + orchestrator/temporal.
+    - name: Probe and reset stale Execution Plane database when needed
+      ansible.builtin.include_tasks: reset_ep_db.yml
+
 - name: Mark the database ready
   ansible.builtin.set_fact:
     db_ready: true
@@ -201,3 +208,6 @@
       db_ready: "{{ db_ready }}"
       db_ns: "{{ db_ns }}"
       pg_pvc_name: "{{ pg_pvc_name }}"
+      ep_alembic_revision: "{{ ep_alembic_revision | default('NONE') }}"
+      ep_db_reset: "{{ ep_db_reset | default(false) }}"
+      ep_failed_jobs_deleted: "{{ ep_failed_jobs_deleted | default(0) }}"

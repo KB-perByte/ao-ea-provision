@@ -1,0 +1,44 @@
+---
+# Offline contract for Execution Plane DB reset helpers.
+# Positive: ansible-playbook tests/ensure_db_ep_reset.yml
+
+- name: Assert EP alembic probe/reset templates and defaults
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Load EP reset sources
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/probe_ep_alembic.sh.j2"
+        - "{{ playbook_dir }}/../roles/ao_ea_postgres/templates/reset_execution_plane_db.sh.j2"
+        - "{{ playbook_dir }}/../roles/ao_ea_postgres/tasks/reset_ep_db.yml"
+        - "{{ playbook_dir }}/../roles/ao_ea_postgres/defaults/main.yml"
+      register: ep_slurps
+
+    - name: Combine EP reset source text
+      ansible.builtin.set_fact:
+        ep_text: "{{ ep_slurps.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+
+    - name: Require probe of both EP schemas and safe reset scope
+      ansible.builtin.assert:
+        that:
+          - "'execution_plane.alembic_version' in ep_text"
+          - "'public.alembic_version' in ep_text"
+          - "'DROP DATABASE IF EXISTS' in ep_text"
+          - "'CREATE DATABASE' in ep_text"
+          - "'RESET_OK' in ep_text"
+          - "'ep_reset_on_update' in ep_text"
+          - "'ep_force_reset' in ep_text"
+          - "'n0k1l2m3n4o5' in ep_text"
+          - "'execution-plane-migration' in ep_text"
+          - "'DROP DATABASE IF EXISTS orchestrator' not in ep_text"
+          - "'DROP DATABASE IF EXISTS temporal' not in ep_text"
+          - "'delete' in ep_text | lower or 'state: absent' in ep_text"
+        fail_msg: >-
+          EP reset must probe execution_plane/public alembic_version, drop
+          only the EP database, emit RESET_OK, honor ep_reset_on_update /
+          ep_force_reset / stale revision n0k1l2m3n4o5, and clear EP
+          migration Jobs — without dropping orchestrator or temporal.
+        success_msg: EP alembic probe/reset contract holds.

@@ -1,7 +1,9 @@
 ---
 # Clean install on a new (or empty) cluster for ao_channel
 # (early-access | stable). Creates DB, secrets, operator, AO CR,
-# postconfig, health. Never deletes an existing DB PVC.
+# postconfig, health, then syncs admin password from the Secret into
+# the DB (covers reuse of a persistent orchestrator DB). Never deletes
+# an existing DB PVC.
 #
 #   ansible-playbook playbooks/clean_install.yml \
 #     -e @secrets/local.extra_vars.yml -e ao_channel=early-access
@@ -49,3 +51,7 @@
     - name: Health-check Ready + Route + /health
       ansible.builtin.include_role:
         name: ao_ea_health
+
+    - name: Sync admin password from Secret into the DB
+      ansible.builtin.include_role:
+        name: ao_ea_admin

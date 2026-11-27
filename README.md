@@ -40,8 +40,12 @@ Optional weekly app wipe (keep DB): `teardown_app.yml` then `update_release.yml`
 | 6 | `playbooks/apply_ao_cr.yml` | Apply `AutomationOrchestrator` CR |
 | 7 | `playbooks/postconfig.yml` | Script nodes via Execution Plane (or skip) |
 | 8 | `playbooks/health_check.yml` | Ready + Route + HTTPS `/health` |
+| 9 | `playbooks/sync_admin_password.yml` | Sync `{ao}-initial-admin-password` into the DB (after Ready) |
 
 `playbooks/safety_assert.yml` is a local guard helper, not a JT.
+`clean_install.yml` and `update_release.yml` run steps 1–9 (health then
+admin sync) so a fresh install and a teardown+recreate against a persistent
+`orchestrator` DB both leave Secret and login password aligned.
 
 Defaults (non-secret) live in `inventory/group_vars/all.yml`:
 
@@ -134,6 +138,13 @@ ansible-playbook playbooks/clean_install.yml -e @secrets/local.extra_vars.yml \
 2. Never create a second Operator Subscription; reconcile channel on the existing one.
 3. Do not log tokens, PG passwords, or admin password plaintext.
 4. Prefer AAP for production; local runs are for debug and first bring-up.
+5. On `update_release` (`provision_mode=update`), `ensure_db` may recreate **only**
+   the `execution_plane` database (`ep_reset_on_update=true`) so early-access EP
+   migrations are not blocked by a stale alembic stamp. Force anytime with
+   `-e ep_force_reset=true`. Never drop `orchestrator` / `temporal` that way.
+6. After Ready, sync the admin login password from
+   `{ao}-initial-admin-password` into the DB (`admin_password_sync=true`).
+   Skip with `-e admin_password_sync=false`. Never print the value.
 
 ## Layout
 

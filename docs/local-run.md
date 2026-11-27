@@ -190,6 +190,8 @@ oc get secret my-orchestrator-initial-admin-password -n syntarogation-ao \
 | missing EP password | Add `pg_execution_plane_password` to `secrets/local.extra_vars.yml` |
 | `ensure-secrets` password mismatch | Same `pg_*_password` values as `ensure-db`; or `-e secrets_verify_connect=false` for connect-only flake |
 | Health timeout | Re-run `health_check` only; check pods/events in `app_ns` |
+| `Degraded=MigrationFailed` / EP migration / `Can't locate revision` (e.g. `n0k1l2m3n4o5`) | Stale `execution_plane` alembic stamp after an early-access refresh. `update_release.yml` resets that DB automatically (`ep_reset_on_update=true`). Standalone repair: `ensure_db.yml -e ep_force_reset=true` then `apply_ao_cr` / `health_check`. Does **not** delete the PVC or orchestrator/temporal DBs. Skip EP entirely with `-e script_nodes_enabled=false`. |
+| UI login rejects the Secret password after clean install / teardown+recreate | Persistent `orchestrator` DB kept an older admin hash; seed does not overwrite it. `clean_install.yml` / `update_release.yml` sync after Ready (`admin_password_sync=true`). Standalone: `sync_admin_password.yml`. Skip with `-e admin_password_sync=false`. |
 
 ## Security checklist before `git push`
 

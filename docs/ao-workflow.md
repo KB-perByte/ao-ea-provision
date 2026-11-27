@@ -85,6 +85,19 @@ map or in script-node variables.
 | Clean install stable | `clean_install.yml -e ao_channel=stable` |
 | Clean install early-access | `clean_install.yml -e ao_channel=early-access` |
 | Weekly wipe app, keep DB | `teardown_app.yml` then `update_release.yml` |
+| Repair stale EP alembic only | `ensure_db.yml -e ep_force_reset=true` then `apply_ao_cr` / `health_check` |
+| Repair admin login vs Secret | `sync_admin_password.yml` (also runs at end of clean/update) |
+
+`update_release.yml` sets `provision_mode=update`, so `ensure_db` recreates
+only the `execution_plane` database by default (`ep_reset_on_update=true`)
+before the CR reconcile. That avoids EP `MigrationFailed` when an early-access
+image cannot locate a prior alembic revision (e.g. `n0k1l2m3n4o5`).
+
+Both `clean_install.yml` and `update_release.yml` finish with
+`sync_admin_password` (`admin_password_sync=true`) so the UI login matches
+`{ao}-initial-admin-password` after a true fresh install **and** after
+teardown+recreate on a persistent `orchestrator` DB (seed only sets the
+password on first admin create).
 
 ### Script nodes / Execution Plane
 
@@ -111,9 +124,9 @@ Never print or persist:
   `pg_temporal_password`, `vault_pg_*`)
 - Secret `.data` values (`oc extract`, `jsonpath='{.data.password}'`)
 - `{ao_name}-initial-admin-password` (health check asserts **presence**
-  only)
+  only; `sync_admin_password` applies it with `no_log` and never prints it)
 
 `ea-health-check` already suppresses that Secret's value. Keep AO
 script output to `ao_channel`, `route_url`, and boolean facts
 (`cr_ready`, `pods_ready`, `route_ok`, `http_probe_ok`,
-`script_nodes_effective`).
+`script_nodes_effective`, `admin_password_synced`).

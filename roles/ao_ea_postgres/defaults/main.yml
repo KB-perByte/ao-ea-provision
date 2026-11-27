@@ -15,6 +15,14 @@ pg_orchestrator_database: orchestrator
 pg_execution_plane_user: execution_plane
 pg_execution_plane_database: execution_plane
 script_nodes_enabled: true
+# Recreate execution_plane DB on provision_mode=update so early-access EP
+# migrations are not blocked by a prior alembic stamp the new image lacks.
+ep_reset_on_update: true
+# Force recreate even on clean_install / standalone ensure_db.
+ep_force_reset: false
+# Known-bad stamps seen when EA EP images diverge (extend as needed).
+ep_stale_alembic_revisions:
+  - n0k1l2m3n4o5
 pg_wait_timeout: 300
 pg_wait_delay: 5
 pg_container_name: postgres
